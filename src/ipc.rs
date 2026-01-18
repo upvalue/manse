@@ -11,6 +11,8 @@ pub enum Request {
     Ping,
     /// Rename a terminal by UUID
     TermRename { terminal: String, title: String },
+    /// Set terminal description by UUID
+    TermDesc { terminal: String, description: String },
 }
 
 /// Response sent from server to client

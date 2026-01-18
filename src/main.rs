@@ -1,5 +1,9 @@
 mod app;
+mod command;
 mod ipc;
+mod terminal;
+mod ui;
+mod workspace;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -36,6 +40,17 @@ enum Commands {
         terminal: String,
         /// New title for the terminal
         title: String,
+    },
+    /// Set terminal description
+    TermDesc {
+        /// Path to IPC socket (defaults to $MANSE_SOCKET)
+        #[arg(short, long, env = "MANSE_SOCKET")]
+        socket: PathBuf,
+        /// Terminal UUID (defaults to $MANSE_TERMINAL)
+        #[arg(short, long, env = "MANSE_TERMINAL")]
+        terminal: String,
+        /// Description for the terminal
+        description: String,
     },
 }
 
@@ -95,6 +110,30 @@ fn main() -> eframe::Result<()> {
             } else {
                 eprintln!(
                     "Failed to rename: {}",
+                    response.error.unwrap_or_else(|| "Unknown error".into())
+                );
+            }
+            Ok(())
+        }
+        Commands::TermDesc {
+            socket,
+            terminal,
+            description,
+        } => {
+            let mut client = ipc::IpcClient::connect(&socket)
+                .map_err(|e| eprintln!("Failed to connect: {}", e))
+                .unwrap();
+
+            let response = client
+                .request(&ipc::Request::TermDesc { terminal, description })
+                .map_err(|e| eprintln!("Request failed: {}", e))
+                .unwrap();
+
+            if response.ok {
+                println!("Terminal description set");
+            } else {
+                eprintln!(
+                    "Failed to set description: {}",
                     response.error.unwrap_or_else(|| "Unknown error".into())
                 );
             }
