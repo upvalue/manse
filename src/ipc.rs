@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 pub enum Request {
     /// Check if server is alive
     Ping,
+    /// Rename a terminal by UUID
+    TermRename { terminal: String, title: String },
 }
 
 /// Response sent from server to client

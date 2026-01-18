@@ -11,11 +11,12 @@ path = "src/main.rs"
 # GUI
 eframe = "0.33"
 egui = "0.33"
-egui_term = { git = "https://github.com/Harzu/egui_term", branch = "main" }
+egui_term = { path = "egui_term" }
 
 # Utilities
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 log = "0.4"
 env_logger = "0.11"
+uuid = { version = "1", features = ["v4"] }

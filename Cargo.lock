@@ -1040,7 +1040,6 @@ dependencies = [
 [[package]]
 name = "egui_term"
 version = "0.1.0"
-source = "git+https://github.com/Harzu/egui_term?branch=main#b943d65179f90578574a6533d8acab7efb4050e3"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -1887,6 +1886,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -3253,6 +3253,7 @@ version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2e054861b4bd027cd373e18e8d8d8e6548085000e41290d95ce0c373a654b4a"
 dependencies = [
+ "getrandom",
  "js-sys",
  "serde_core",
  "wasm-bindgen",

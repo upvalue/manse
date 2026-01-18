@@ -13,13 +13,12 @@ Manse is a prototype scrolling window manager for terminal emulators, inspired b
    - Smooth animated scrolling between terminals
    - Variable-width terminals (1/3, 1/2, 2/3, or full viewport width)
    - Multiple terminals visible when they fit in viewport
-   - Position indicators (dots) at bottom of screen
+   - Position indicators (dots) in status bar
 
-2. **Terminal Simulation**
-   - Character grid with cursor
-   - Typing animation (lorem ipsum text)
-   - Cursor blinking
-   - Per-terminal text content
+2. **Real Terminal Emulation**
+   - Full PTY-based terminal emulation via egui_term/alacritty_terminal
+   - Spawns user's default shell ($SHELL)
+   - Proper VT/ANSI escape sequence handling
 
 3. **Unix Socket IPC**
    - Control socket for external tooling
@@ -27,28 +26,35 @@ Manse is a prototype scrolling window manager for terminal emulators, inspired b
    - Stale socket detection and cleanup
    - Duplicate instance prevention
 
+4. **UI Layout**
+   - Left sidebar (200px, placeholder for future features)
+   - Status bar with terminal minimap and position indicator
+   - Blue border highlight on focused terminal
+
 ### Architecture
 
 ```
-src/
-├── main.rs   # CLI entry point (clap-based)
-├── gui.rs    # SDL2 GUI, WindowManager, Terminal structs
-└── ipc.rs    # Unix socket server/client, protocol types
+manse-rs/
+├── src/
+│   ├── main.rs   # CLI entry point (clap + eframe)
+│   ├── app.rs    # egui App, WindowManager logic, terminal panels
+│   └── ipc.rs    # Unix socket server/client, protocol types
+└── egui_term/    # Local fork of egui_term (focus fix applied)
 ```
 
 ### Key Structures
 
-**WindowManager** (`src/gui.rs`)
-- Manages collection of terminals
+**App** (`src/app.rs`)
+- Manages collection of TerminalPanel instances
 - Handles scroll state (offset, target, animation)
 - Tracks focused terminal index
-- Calculates terminal positions from cumulative widths
+- Processes IPC commands
+- Renders UI (sidebar, status bar, terminal area)
 
-**Terminal** (`src/gui.rs`)
-- Character grid (cols × rows)
-- Cursor position and blink state
+**TerminalPanel** (`src/app.rs`)
+- Wraps egui_term::TerminalBackend
 - Width ratio (fraction of viewport)
-- Text source for typing animation
+- Unique ID for event routing
 
 **IpcServer/IpcClient** (`src/ipc.rs`)
 - JSON protocol over Unix domain socket
@@ -60,56 +66,54 @@ src/
 | Key | Action |
 |-----|--------|
 | `Ctrl+N` | Create new terminal |
+| `Ctrl+W` | Close focused terminal |
 | `Ctrl+H` | Focus previous terminal |
 | `Ctrl+L` | Focus next terminal |
 | `Ctrl+,` | Shrink focused terminal |
 | `Ctrl+.` | Grow focused terminal |
-| `Escape` | Quit |
 
 ### CLI Usage
 
 ```bash
 # Run without IPC
-manse run
+cargo run -- run
 
 # Run with IPC socket
-manse run --socket /tmp/manse.sock
+cargo run -- run --socket /tmp/manse.sock
 
 # Ping a running instance
-manse ping --socket /tmp/manse.sock
+cargo run -- ping --socket /tmp/manse.sock
 ```
 
 ### Dependencies
 
-- `sdl2` - Rendering and input (with ttf feature)
+- `eframe` / `egui` - GUI framework
+- `egui_term` - Terminal widget (local fork with focus fix)
+- `alacritty_terminal` - Terminal emulation backend (via egui_term)
 - `clap` - CLI argument parsing
 - `serde` / `serde_json` - IPC protocol serialization
 
 ### Building
 
 ```bash
-# macOS (requires SDL2 from homebrew)
-LIBRARY_PATH="$(brew --prefix)/lib" cargo build
+cargo build
+cargo run -- run
+```
 
-# Run
-LIBRARY_PATH="$(brew --prefix)/lib" cargo run -- run
+### Local egui_term Fork
+
+The `egui_term/` directory contains a fork of [Harzu/egui_term](https://github.com/Harzu/egui_term) with a fix for keyboard focus handling. The upstream library requires both focus AND mouse hover for keyboard input; our fork removes the hover requirement so terminals work properly when the window regains focus.
+
+Change in `egui_term/src/view.rs`:
+```rust
+// Before (upstream):
+if !layout.has_focus() || !layout.contains_pointer() {
+
+// After (our fork):
+if !layout.has_focus() {
 ```
 
 ## Future Directions
-
-### Planned: Real Terminal Emulation
-
-The current implementation uses simulated terminals with lorem ipsum text. The next step is integrating actual terminal emulation using **libghostty** from the Ghostty project.
-
-libghostty would provide:
-- VT/ANSI escape sequence parsing
-- PTY (pseudo-terminal) management
-- Terminal state machine
-
-Manse would continue to provide:
-- Window management (scrolling, tiling)
-- Rendering (via SDL2)
-- IPC for external control
 
 ### Planned: Extended IPC
 
@@ -120,9 +124,11 @@ The socket interface is designed to support additional commands:
 {"cmd": "snapshot"}
 {"ok": true, "result": {"terminals": [...], "focused": 0}}
 
-// Send keypress
-{"cmd": "send_key", "key": "ctrl+n"}
-{"ok": true}
+// Terminal management
+{"cmd": "new_terminal"}
+{"cmd": "close_terminal"}
+{"cmd": "focus_next"}
+{"cmd": "focus_prev"}
 ```
 
 This enables:
