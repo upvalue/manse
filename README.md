@@ -1,6 +1,12 @@
 # manse
 
-An experiment in project-aware scrolling terminal emulation.
+An experiment in project and application aware scrolling terminal emulation.
+Make as many terminals as you want and scroll between them. Terminals are
+automatically grouped into workspaces, based on the project you're in, and
+plugins for apps/shells can update the UI to reflect what's going on in a given
+terminal.
+
+# Rambling
 
 The basic theory of manse:
 
@@ -35,11 +41,11 @@ the running application is, you have more of a tree:
 - ~/project1
     - Agent: Implementing feature X
     - Agent: Implementing feature Y
-    - Terminal: neovim editing src/feature-y.ts
+    - Terminal: ~/project1
     - Agent: Fixing bug Z
 - ~/project2
     - Agent: Implementing feature X
-    - Terminal: neovim editing src/feature-z.ts
+    - Neovim: editing src/feature-x.ts
 ```
 
 # How does it work?

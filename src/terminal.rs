@@ -19,6 +19,8 @@ pub struct TerminalPanel {
     pub custom_title: Option<String>,
     /// Optional description set via IPC
     pub description: String,
+    /// Current working directory (from OSC 7 escape sequences)
+    pub current_working_directory: Option<PathBuf>,
 }
 
 impl TerminalPanel {
@@ -27,6 +29,7 @@ impl TerminalPanel {
         ctx: &egui::Context,
         event_tx: Sender<(u64, PtyEvent)>,
         socket_path: Option<&PathBuf>,
+        working_directory: Option<PathBuf>,
     ) -> Self {
         let uuid = Uuid::new_v4();
 
@@ -45,9 +48,12 @@ impl TerminalPanel {
             env.insert("MANSE_SOCKET".to_string(), path.display().to_string());
         }
 
+        // Use provided working directory or fall back to current dir
+        let working_directory = working_directory.or_else(|| std::env::current_dir().ok());
+
         let settings = BackendSettings {
             shell,
-            working_directory: std::env::current_dir().ok(),
+            working_directory: working_directory.clone(),
             env,
             ..Default::default()
         };
@@ -62,6 +68,7 @@ impl TerminalPanel {
             title: String::from("Terminal"),
             custom_title: None,
             description: String::new(),
+            current_working_directory: working_directory,
         }
     }
 

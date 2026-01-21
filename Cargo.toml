@@ -23,3 +23,7 @@ uuid = { version = "1", features = ["v4"] }
 
 # Scripting
 mlua = { version = "0.10", features = ["lua54", "vendored"] }
+
+[patch.crates-io]
+vte = { path = "patches/vte" }
+alacritty_terminal = { path = "patches/alacritty_terminal" }

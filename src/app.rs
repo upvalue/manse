@@ -142,7 +142,11 @@ impl App {
         let id = self.next_id;
         self.next_id += 1;
 
-        let panel = TerminalPanel::new(id, ctx, self.event_tx.clone(), self.socket_path.as_ref());
+        // Inherit working directory from focused terminal
+        let working_dir = self.focused_panel()
+            .and_then(|p| p.current_working_directory.clone());
+
+        let panel = TerminalPanel::new(id, ctx, self.event_tx.clone(), self.socket_path.as_ref(), working_dir);
         self.panels.insert(id, panel);
 
         // Insert after the currently focused terminal (or at end if empty)
@@ -332,6 +336,11 @@ impl App {
                 PtyEvent::Title(title) => {
                     if let Some(panel) = self.panels.get_mut(&id) {
                         panel.title = title;
+                    }
+                }
+                PtyEvent::WorkingDirectory(path) => {
+                    if let Some(panel) = self.panels.get_mut(&id) {
+                        panel.current_working_directory = Some(PathBuf::from(path));
                     }
                 }
                 _ => {}
