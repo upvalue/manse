@@ -446,17 +446,22 @@ impl App {
                 self.execute_command(Command::CloseTerminal, ctx);
             }
 
-            // Cmd+[ / Cmd+Shift+[: Focus previous / Swap with previous
-            if i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::OpenBracket) {
+            // Cmd+Shift+[ (reported as Cmd+{): Swap with previous
+            // On macOS, Shift+[ produces OpenCurlyBracket, not OpenBracket with shift
+            if i.key_pressed(egui::Key::OpenCurlyBracket) && i.modifiers.command {
                 self.execute_command(Command::SwapWithPrevious, ctx);
-            } else if i.consume_key(egui::Modifiers::COMMAND, egui::Key::OpenBracket) {
+            }
+            // Cmd+[: Focus previous
+            if i.consume_key(egui::Modifiers::COMMAND, egui::Key::OpenBracket) {
                 self.execute_command(Command::FocusPrevious, ctx);
             }
 
-            // Cmd+] / Cmd+Shift+]: Focus next / Swap with next
-            if i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::CloseBracket) {
+            // Cmd+Shift+] (reported as Cmd+}): Swap with next
+            if i.key_pressed(egui::Key::CloseCurlyBracket) && i.modifiers.command {
                 self.execute_command(Command::SwapWithNext, ctx);
-            } else if i.consume_key(egui::Modifiers::COMMAND, egui::Key::CloseBracket) {
+            }
+            // Cmd+]: Focus next
+            if i.consume_key(egui::Modifiers::COMMAND, egui::Key::CloseBracket) {
                 self.execute_command(Command::FocusNext, ctx);
             }
 
