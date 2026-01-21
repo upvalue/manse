@@ -10,7 +10,7 @@ use std::path::PathBuf;
 pub struct SidebarConfig {
     pub width: f32,
     pub workspace_font_size: f32,
-    pub terminal_font_size: f32,
+    pub terminal_title_font_size: f32,
     pub description_font_size: f32,
 }
 
@@ -19,16 +19,26 @@ impl Default for SidebarConfig {
         Self {
             width: 300.0,
             workspace_font_size: 13.0,
-            terminal_font_size: 12.0,
+            terminal_title_font_size: 12.0,
             description_font_size: 10.0,
         }
     }
 }
 
 /// Application configuration
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub sidebar: SidebarConfig,
+    pub terminal_font_size: f32,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            sidebar: SidebarConfig::default(),
+            terminal_font_size: 14.0,
+        }
+    }
 }
 
 /// Find the project root by walking up from the executable location.
@@ -79,20 +89,23 @@ fn load_config_from_file(path: &PathBuf) -> LuaResult<Config> {
     let lua = Lua::new();
 
     // Create config table with defaults
-    let defaults = SidebarConfig::default();
+    let sidebar_defaults = SidebarConfig::default();
+    let config_defaults = Config::default();
     lua.load(&format!(
         r#"
         config = {{
             sidebar_width = {sidebar_width},
             workspace_font_size = {workspace_font_size},
-            terminal_font_size = {terminal_font_size},
+            terminal_title_font_size = {terminal_title_font_size},
             description_font_size = {description_font_size},
+            terminal_font_size = {terminal_font_size},
         }}
         "#,
-        sidebar_width = defaults.width,
-        workspace_font_size = defaults.workspace_font_size,
-        terminal_font_size = defaults.terminal_font_size,
-        description_font_size = defaults.description_font_size,
+        sidebar_width = sidebar_defaults.width,
+        workspace_font_size = sidebar_defaults.workspace_font_size,
+        terminal_title_font_size = sidebar_defaults.terminal_title_font_size,
+        description_font_size = sidebar_defaults.description_font_size,
+        terminal_font_size = config_defaults.terminal_font_size,
     ))
     .exec()?;
 
@@ -109,9 +122,10 @@ fn load_config_from_file(path: &PathBuf) -> LuaResult<Config> {
         sidebar: SidebarConfig {
             width: config_table.get("sidebar_width")?,
             workspace_font_size: config_table.get("workspace_font_size")?,
-            terminal_font_size: config_table.get("terminal_font_size")?,
+            terminal_title_font_size: config_table.get("terminal_title_font_size")?,
             description_font_size: config_table.get("description_font_size")?,
         },
+        terminal_font_size: config_table.get("terminal_font_size")?,
     };
 
     Ok(config)

@@ -72,7 +72,7 @@ pub fn render(
                         let response = ui.add(
                             egui::Label::new(
                                 egui::RichText::new(&title_text)
-                                    .size(config.terminal_font_size)
+                                    .size(config.terminal_title_font_size)
                                     .color(text_color),
                             )
                             .truncate()

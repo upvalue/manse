@@ -1,7 +1,10 @@
+use eframe::egui;
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread;
 
 /// Request sent from client to server
 #[derive(Debug, Serialize, Deserialize)]
@@ -45,125 +48,152 @@ impl Response {
     }
 }
 
-/// Server that listens for IPC commands
-pub struct IpcServer {
-    listener: UnixListener,
-    socket_path: PathBuf,
-    clients: Vec<UnixStream>,
+/// A pending IPC request with a channel to send the response back
+pub struct PendingRequest {
+    pub request: Request,
+    response_tx: Sender<Response>,
 }
 
-impl IpcServer {
-    /// Create a new IPC server at the given socket path.
-    /// Returns an error if another instance is already running on this socket.
-    pub fn new(socket_path: impl AsRef<Path>) -> Result<Self, String> {
-        let socket_path = socket_path.as_ref().to_path_buf();
-
-        // Check if socket already exists
-        if socket_path.exists() {
-            // Try to connect - if successful, another instance is running
-            match UnixStream::connect(&socket_path) {
-                Ok(_) => {
-                    return Err(format!(
-                        "Another instance is already running on socket: {}",
-                        socket_path.display()
-                    ));
-                }
-                Err(_) => {
-                    // Stale socket file, remove it
-                    std::fs::remove_file(&socket_path).map_err(|e| {
-                        format!(
-                            "Failed to remove stale socket {}: {}",
-                            socket_path.display(),
-                            e
-                        )
-                    })?;
-                }
-            }
-        }
-
-        // Create the listener
-        let listener = UnixListener::bind(&socket_path)
-            .map_err(|e| format!("Failed to bind socket {}: {}", socket_path.display(), e))?;
-
-        // Set non-blocking so we can poll in the event loop
-        listener
-            .set_nonblocking(true)
-            .map_err(|e| format!("Failed to set non-blocking: {}", e))?;
-
-        Ok(Self {
-            listener,
-            socket_path,
-            clients: Vec::new(),
-        })
+impl PendingRequest {
+    /// Send a response back to the client
+    pub fn respond(self, response: Response) {
+        let _ = self.response_tx.send(response);
     }
+}
 
-    /// Poll for incoming connections and commands. Call this each frame.
-    /// Returns a list of requests that need to be handled.
-    pub fn poll(&mut self) -> Vec<(usize, Request)> {
+/// Handle for the main thread to receive IPC requests
+pub struct IpcHandle {
+    request_rx: Receiver<PendingRequest>,
+    _socket_path: PathBuf,
+}
+
+impl IpcHandle {
+    /// Poll for pending requests (non-blocking)
+    pub fn poll(&self) -> Vec<PendingRequest> {
         let mut requests = Vec::new();
-
-        // Accept new connections
-        loop {
-            match self.listener.accept() {
-                Ok((stream, _)) => {
-                    stream.set_nonblocking(true).ok();
-                    self.clients.push(stream);
-                }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    break;
-                }
-                Err(_) => break,
-            }
+        while let Ok(req) = self.request_rx.try_recv() {
+            requests.push(req);
         }
-
-        // Read from existing clients
-        let mut to_remove = Vec::new();
-        for (idx, client) in self.clients.iter_mut().enumerate() {
-            let mut reader = BufReader::new(client.try_clone().unwrap());
-            let mut line = String::new();
-
-            match reader.read_line(&mut line) {
-                Ok(0) => {
-                    // Connection closed
-                    to_remove.push(idx);
-                }
-                Ok(_) => {
-                    if let Ok(request) = serde_json::from_str::<Request>(&line) {
-                        requests.push((idx, request));
-                    }
-                }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    // No data available, that's fine
-                }
-                Err(_) => {
-                    to_remove.push(idx);
-                }
-            }
-        }
-
-        // Remove disconnected clients (in reverse order to preserve indices)
-        for idx in to_remove.into_iter().rev() {
-            self.clients.remove(idx);
-        }
-
         requests
     }
+}
 
-    /// Send a response to a specific client
-    pub fn respond(&mut self, client_idx: usize, response: &Response) {
-        if let Some(client) = self.clients.get_mut(client_idx) {
-            if let Ok(json) = serde_json::to_string(response) {
-                let _ = writeln!(client, "{}", json);
-                let _ = client.flush();
+/// Start the IPC server in a background thread.
+/// Returns a handle for the main thread to receive requests.
+pub fn start_ipc_server(
+    socket_path: impl AsRef<Path>,
+    ctx: egui::Context,
+) -> Result<IpcHandle, String> {
+    let socket_path = socket_path.as_ref().to_path_buf();
+
+    // Check if socket already exists
+    if socket_path.exists() {
+        // Try to connect - if successful, another instance is running
+        match UnixStream::connect(&socket_path) {
+            Ok(_) => {
+                return Err(format!(
+                    "Another instance is already running on socket: {}",
+                    socket_path.display()
+                ));
+            }
+            Err(_) => {
+                // Stale socket file, remove it
+                std::fs::remove_file(&socket_path).map_err(|e| {
+                    format!(
+                        "Failed to remove stale socket {}: {}",
+                        socket_path.display(),
+                        e
+                    )
+                })?;
             }
         }
     }
+
+    // Create the listener (blocking mode for the background thread)
+    let listener = UnixListener::bind(&socket_path)
+        .map_err(|e| format!("Failed to bind socket {}: {}", socket_path.display(), e))?;
+
+    log::info!("IPC server listening on: {}", socket_path.display());
+
+    let (request_tx, request_rx) = mpsc::channel();
+    let socket_path_clone = socket_path.clone();
+
+    thread::spawn(move || {
+        // Handle cleanup on thread exit
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(socket_path_clone);
+
+        for stream in listener.incoming() {
+            match stream {
+                Ok(stream) => {
+                    let request_tx = request_tx.clone();
+                    let ctx = ctx.clone();
+
+                    // Handle each client in its own thread for concurrent connections
+                    thread::spawn(move || {
+                        handle_client(stream, request_tx, ctx);
+                    });
+                }
+                Err(e) => {
+                    log::error!("IPC accept error: {}", e);
+                }
+            }
+        }
+    });
+
+    Ok(IpcHandle {
+        request_rx,
+        _socket_path: socket_path,
+    })
 }
 
-impl Drop for IpcServer {
-    fn drop(&mut self) {
-        // Clean up socket file on exit
-        let _ = std::fs::remove_file(&self.socket_path);
+fn handle_client(stream: UnixStream, request_tx: Sender<PendingRequest>, ctx: egui::Context) {
+    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    let mut writer = stream;
+
+    loop {
+        let mut line = String::new();
+        match reader.read_line(&mut line) {
+            Ok(0) => break, // Connection closed
+            Ok(_) => {
+                if let Ok(request) = serde_json::from_str::<Request>(&line) {
+                    // Create a oneshot-style channel for the response
+                    let (response_tx, response_rx) = mpsc::channel();
+
+                    let pending = PendingRequest {
+                        request,
+                        response_tx,
+                    };
+
+                    // Send to main thread and request repaint
+                    if request_tx.send(pending).is_err() {
+                        break; // Main thread gone
+                    }
+                    ctx.request_repaint();
+
+                    // Wait for response from main thread
+                    match response_rx.recv() {
+                        Ok(response) => {
+                            if let Ok(json) = serde_json::to_string(&response) {
+                                if writeln!(writer, "{}", json).is_err() {
+                                    break;
+                                }
+                                if writer.flush().is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                        Err(_) => break, // Main thread dropped the sender
+                    }
+                }
+            }
+            Err(_) => break,
+        }
     }
 }
 

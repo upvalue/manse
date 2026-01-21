@@ -52,7 +52,7 @@ impl Command {
             Command::SwapWithNext => "⌘⇧]",
             Command::ShrinkTerminal => "⌘-",
             Command::GrowTerminal => "⌘=",
-            Command::FollowMode => "",
+            Command::FollowMode => "⌘J",
         }
     }
 }

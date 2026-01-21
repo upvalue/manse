@@ -1,11 +1,11 @@
 use crate::command::Command;
 use crate::config::Config;
-use crate::ipc::{IpcServer, Request, Response};
+use crate::ipc::{start_ipc_server, IpcHandle, Request, Response};
 use crate::terminal::TerminalPanel;
 use crate::ui::{command_palette, sidebar, status_bar};
 use crate::workspace::Workspace;
 use eframe::egui;
-use egui_term::{PtyEvent, TerminalView};
+use egui_term::{FontSettings, PtyEvent, TerminalFont, TerminalView};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -64,8 +64,8 @@ pub struct App {
     event_rx: Receiver<(u64, PtyEvent)>,
     /// Event sender for creating new terminals
     event_tx: Sender<(u64, PtyEvent)>,
-    /// IPC server for external control
-    ipc_server: Option<IpcServer>,
+    /// IPC handle for external control (server runs in background thread)
+    ipc_handle: Option<IpcHandle>,
     /// Socket path for IPC (passed to terminal env)
     socket_path: Option<PathBuf>,
     /// Whether the command palette is open
@@ -81,13 +81,10 @@ impl App {
 
         let (event_tx, event_rx) = mpsc::channel();
 
-        // Initialize IPC server if socket path provided
-        let ipc_server = socket_path.as_ref().and_then(|path| {
-            match IpcServer::new(path) {
-                Ok(server) => {
-                    log::info!("IPC server listening on: {}", path.display());
-                    Some(server)
-                }
+        // Initialize IPC server in background thread if socket path provided
+        let ipc_handle = socket_path.as_ref().and_then(|path| {
+            match start_ipc_server(path, cc.egui_ctx.clone()) {
+                Ok(handle) => Some(handle),
                 Err(e) => {
                     log::error!("Failed to start IPC server: {}", e);
                     None
@@ -103,7 +100,7 @@ impl App {
             next_id: 0,
             event_rx,
             event_tx,
-            ipc_server,
+            ipc_handle,
             socket_path,
             command_palette_open: false,
             follow_mode: false,
@@ -147,7 +144,15 @@ impl App {
 
         let panel = TerminalPanel::new(id, ctx, self.event_tx.clone(), self.socket_path.as_ref());
         self.panels.insert(id, panel);
-        self.active_workspace_mut().panel_order.push(id);
+
+        // Insert after the currently focused terminal (or at end if empty)
+        let ws = self.active_workspace_mut();
+        if ws.panel_order.is_empty() {
+            ws.panel_order.push(id);
+        } else {
+            let insert_pos = ws.focused_index + 1;
+            ws.panel_order.insert(insert_pos, id);
+        }
     }
 
     fn focused_panel(&self) -> Option<&TerminalPanel> {
@@ -337,9 +342,10 @@ impl App {
     fn execute_command(&mut self, cmd: Command, ctx: &egui::Context) {
         match cmd {
             Command::NewTerminal => {
-                self.create_terminal(ctx);
                 let ws = self.active_workspace_mut();
-                ws.focused_index = ws.panel_order.len() - 1;
+                let new_index = ws.focused_index + 1;
+                self.create_terminal(ctx);
+                self.active_workspace_mut().focused_index = new_index;
             }
             Command::CloseTerminal => self.close_focused(),
             Command::FocusPrevious => self.focus_prev(),
@@ -428,186 +434,177 @@ impl App {
             return;
         }
 
-        ctx.input(|i| {
+        // Use input_mut with consume_key to prevent default handlers (like zoom) from processing
+        ctx.input_mut(|i| {
             // Cmd+T: New terminal (matches WezTerm)
-            if i.key_pressed(egui::Key::T) {
+            if i.consume_key(egui::Modifiers::COMMAND, egui::Key::T) {
                 self.execute_command(Command::NewTerminal, ctx);
             }
 
             // Cmd+W: Close focused terminal
-            if i.key_pressed(egui::Key::W) {
+            if i.consume_key(egui::Modifiers::COMMAND, egui::Key::W) {
                 self.execute_command(Command::CloseTerminal, ctx);
             }
 
             // Cmd+[ / Cmd+Shift+[: Focus previous / Swap with previous
-            if i.key_pressed(egui::Key::OpenBracket) {
-                if modifiers.shift {
-                    self.execute_command(Command::SwapWithPrevious, ctx);
-                } else {
-                    self.execute_command(Command::FocusPrevious, ctx);
-                }
+            if i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::OpenBracket) {
+                self.execute_command(Command::SwapWithPrevious, ctx);
+            } else if i.consume_key(egui::Modifiers::COMMAND, egui::Key::OpenBracket) {
+                self.execute_command(Command::FocusPrevious, ctx);
             }
 
             // Cmd+] / Cmd+Shift+]: Focus next / Swap with next
-            if i.key_pressed(egui::Key::CloseBracket) {
-                if modifiers.shift {
-                    self.execute_command(Command::SwapWithNext, ctx);
-                } else {
-                    self.execute_command(Command::FocusNext, ctx);
-                }
+            if i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::CloseBracket) {
+                self.execute_command(Command::SwapWithNext, ctx);
+            } else if i.consume_key(egui::Modifiers::COMMAND, egui::Key::CloseBracket) {
+                self.execute_command(Command::FocusNext, ctx);
             }
 
-            // Cmd+-: Shrink focused
-            if i.key_pressed(egui::Key::Minus) {
+            // Cmd+-: Shrink focused (consume to prevent default zoom behavior)
+            if i.consume_key(egui::Modifiers::COMMAND, egui::Key::Minus) {
                 self.execute_command(Command::ShrinkTerminal, ctx);
             }
 
-            // Cmd+=: Grow focused
-            if i.key_pressed(egui::Key::Equals) {
+            // Cmd+=: Grow focused (consume to prevent default zoom behavior)
+            if i.consume_key(egui::Modifiers::COMMAND, egui::Key::Equals) {
                 self.execute_command(Command::GrowTerminal, ctx);
+            }
+
+            // Cmd+J: Follow mode (jump to terminal by letter)
+            if i.consume_key(egui::Modifiers::COMMAND, egui::Key::J) {
+                self.execute_command(Command::FollowMode, ctx);
             }
         });
     }
 
-    fn process_ipc(&mut self, _ctx: &egui::Context) {
-        let Some(server) = &mut self.ipc_server else {
+    fn process_ipc(&mut self) {
+        let Some(handle) = &self.ipc_handle else {
             return;
         };
 
-        let requests = server.poll();
+        for pending in handle.poll() {
+            let response = match pending.request {
+                Request::Ping => Response::ok(),
+                Request::TermRename { ref terminal, ref title } => {
+                    // Parse the UUID and find the terminal
+                    match Uuid::parse_str(&terminal) {
+                        Ok(target_uuid) => {
+                            // Find the panel with matching UUID
+                            let panel = self.panels.values_mut()
+                                .find(|p| p.uuid == target_uuid);
 
-        // Collect responses first, then send them
-        let responses: Vec<(usize, Response)> = requests
-            .into_iter()
-            .map(|(client_idx, request)| {
-                let response = match request {
-                    Request::Ping => Response::ok(),
-                    Request::TermRename { terminal, title } => {
-                        // Parse the UUID and find the terminal
-                        match Uuid::parse_str(&terminal) {
-                            Ok(target_uuid) => {
-                                // Find the panel with matching UUID
-                                let panel = self.panels.values_mut()
-                                    .find(|p| p.uuid == target_uuid);
-
-                                if let Some(panel) = panel {
-                                    panel.custom_title = Some(title);
-                                    Response::ok()
-                                } else {
-                                    Response::error(format!("Terminal not found: {}", terminal))
-                                }
+                            if let Some(panel) = panel {
+                                panel.custom_title = Some(title.clone());
+                                Response::ok()
+                            } else {
+                                Response::error(format!("Terminal not found: {}", terminal))
                             }
-                            Err(_) => Response::error(format!("Invalid UUID: {}", terminal)),
                         }
+                        Err(_) => Response::error(format!("Invalid UUID: {}", terminal)),
                     }
-                    Request::TermDesc { terminal, description } => {
-                        match Uuid::parse_str(&terminal) {
-                            Ok(target_uuid) => {
-                                let panel = self.panels.values_mut()
-                                    .find(|p| p.uuid == target_uuid);
+                }
+                Request::TermDesc { ref terminal, ref description } => {
+                    match Uuid::parse_str(&terminal) {
+                        Ok(target_uuid) => {
+                            let panel = self.panels.values_mut()
+                                .find(|p| p.uuid == target_uuid);
 
-                                if let Some(panel) = panel {
-                                    panel.description = description;
-                                    Response::ok()
-                                } else {
-                                    Response::error(format!("Terminal not found: {}", terminal))
-                                }
+                            if let Some(panel) = panel {
+                                panel.description = description.clone();
+                                Response::ok()
+                            } else {
+                                Response::error(format!("Terminal not found: {}", terminal))
                             }
-                            Err(_) => Response::error(format!("Invalid UUID: {}", terminal)),
                         }
+                        Err(_) => Response::error(format!("Invalid UUID: {}", terminal)),
                     }
-                    Request::TermToWorkspace { terminal, workspace_name } => {
-                        match Uuid::parse_str(&terminal) {
-                            Ok(target_uuid) => {
-                                // Find the panel's internal id
-                                let panel_id = self.panels.iter()
-                                    .find(|(_, p)| p.uuid == target_uuid)
-                                    .map(|(&id, _)| id);
+                }
+                Request::TermToWorkspace { ref terminal, ref workspace_name } => {
+                    match Uuid::parse_str(&terminal) {
+                        Ok(target_uuid) => {
+                            // Find the panel's internal id
+                            let panel_id = self.panels.iter()
+                                .find(|(_, p)| p.uuid == target_uuid)
+                                .map(|(&id, _)| id);
 
-                                match panel_id {
-                                    Some(id) => {
-                                        // Check if terminal is already in target workspace
-                                        let current_ws_idx = self.workspaces.iter()
-                                            .position(|ws| ws.panel_order.contains(&id));
+                            match panel_id {
+                                Some(id) => {
+                                    // Check if terminal is already in target workspace
+                                    let current_ws_idx = self.workspaces.iter()
+                                        .position(|ws| ws.panel_order.contains(&id));
 
-                                        if let Some(ws_idx) = current_ws_idx {
-                                            if self.workspaces[ws_idx].name == workspace_name {
-                                                // Already in target workspace, just switch to it
-                                                self.active_workspace = ws_idx;
-                                                return (client_idx, Response::ok());
-                                            }
+                                    if let Some(ws_idx) = current_ws_idx {
+                                        if self.workspaces[ws_idx].name == *workspace_name {
+                                            // Already in target workspace, just switch to it
+                                            self.active_workspace = ws_idx;
+                                            pending.respond(Response::ok());
+                                            continue;
                                         }
-
-                                        // Remove from current workspace
-                                        for ws in &mut self.workspaces {
-                                            if let Some(pos) = ws.panel_order.iter().position(|&x| x == id) {
-                                                ws.panel_order.remove(pos);
-                                                // Adjust focused_index if needed
-                                                if ws.focused_index >= ws.panel_order.len() && ws.panel_order.len() > 0 {
-                                                    ws.focused_index = ws.panel_order.len() - 1;
-                                                }
-                                                break;
-                                            }
-                                        }
-
-                                        // Find or create target workspace
-                                        let target_ws_idx = self.workspaces.iter()
-                                            .position(|ws| ws.name == workspace_name);
-
-                                        let target_ws_idx = match target_ws_idx {
-                                            Some(idx) => idx,
-                                            None => {
-                                                // Create new workspace
-                                                self.workspaces.push(Workspace::new(&workspace_name));
-                                                self.workspaces.len() - 1
-                                            }
-                                        };
-
-                                        // Add terminal to target workspace
-                                        self.workspaces[target_ws_idx].panel_order.push(id);
-                                        self.workspaces[target_ws_idx].focused_index =
-                                            self.workspaces[target_ws_idx].panel_order.len() - 1;
-
-                                        // Switch to the target workspace
-                                        self.active_workspace = target_ws_idx;
-
-                                        // Clean up empty workspaces
-                                        self.cleanup_empty_workspaces();
-
-                                        Response::ok()
                                     }
-                                    None => Response::error(format!("Terminal not found: {}", terminal)),
-                                }
-                            }
-                            Err(_) => Response::error(format!("Invalid UUID: {}", terminal)),
-                        }
-                    }
-                };
-                (client_idx, response)
-            })
-            .collect();
 
-        // Now send responses
-        let server = self.ipc_server.as_mut().unwrap();
-        for (client_idx, response) in responses {
-            server.respond(client_idx, &response);
+                                    // Remove from current workspace
+                                    for ws in &mut self.workspaces {
+                                        if let Some(pos) = ws.panel_order.iter().position(|&x| x == id) {
+                                            ws.panel_order.remove(pos);
+                                            // Adjust focused_index if needed
+                                            if ws.focused_index >= ws.panel_order.len() && !ws.panel_order.is_empty() {
+                                                ws.focused_index = ws.panel_order.len() - 1;
+                                            }
+                                            break;
+                                        }
+                                    }
+
+                                    // Find or create target workspace
+                                    let target_ws_idx = self.workspaces.iter()
+                                        .position(|ws| ws.name == *workspace_name);
+
+                                    let target_ws_idx = match target_ws_idx {
+                                        Some(idx) => idx,
+                                        None => {
+                                            // Create new workspace
+                                            self.workspaces.push(Workspace::new(workspace_name));
+                                            self.workspaces.len() - 1
+                                        }
+                                    };
+
+                                    // Add terminal to target workspace
+                                    self.workspaces[target_ws_idx].panel_order.push(id);
+                                    self.workspaces[target_ws_idx].focused_index =
+                                        self.workspaces[target_ws_idx].panel_order.len() - 1;
+
+                                    // Switch to the target workspace
+                                    self.active_workspace = target_ws_idx;
+
+                                    // Clean up empty workspaces
+                                    self.cleanup_empty_workspaces();
+
+                                    Response::ok()
+                                }
+                                None => Response::error(format!("Terminal not found: {}", terminal)),
+                            }
+                        }
+                        Err(_) => Response::error(format!("Invalid UUID: {}", terminal)),
+                    }
+                }
+            };
+            pending.respond(response);
         }
     }
 }
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Always request repaint - terminals need continuous updates for:
-        // - Cursor blinking
-        // - Async command output
-        // - PTY activity
-        ctx.request_repaint();
+        // Request repaint during scroll animation
+        let ws = self.active_workspace();
+        if (ws.scroll_offset - ws.target_offset).abs() > 0.5 {
+            ctx.request_repaint();
+        }
 
         // Process PTY events
         self.process_events(ctx);
 
-        // Process IPC commands
-        self.process_ipc(ctx);
+        // Process IPC commands (background thread triggers repaint when requests arrive)
+        self.process_ipc();
 
         // Handle keyboard shortcuts
         self.handle_keyboard_shortcuts(ctx);
@@ -676,6 +673,7 @@ impl eframe::App for App {
 
                 // Calculate terminal positions and visibility
                 let border_width = 2.0;
+                let terminal_font_size = self.config.terminal_font_size;
                 let mut terminal_positions: Vec<(u64, f32, f32)> = Vec::new(); // (id, x_start, width)
                 let mut x_pos = 0.0;
                 for &id in &panel_order {
@@ -730,8 +728,12 @@ impl eframe::App for App {
 
                         frame.show(&mut child_ui, |ui| {
                             // Render terminal with slightly smaller size to fit border
+                            let font = TerminalFont::new(FontSettings {
+                                font_type: egui::FontId::monospace(terminal_font_size),
+                            });
                             let term_view = TerminalView::new(ui, &mut panel.backend)
                                 .set_focus(is_focused)
+                                .set_font(font)
                                 .set_size(egui::vec2(inner_width, inner_height));
                             let response = ui.add(term_view);
 
