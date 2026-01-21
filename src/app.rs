@@ -611,6 +611,17 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Skip rendering when minimized (window definitely not visible)
+        let is_minimized = ctx.input(|i| i.viewport().minimized.unwrap_or(false));
+        if is_minimized {
+            // Still process events so terminals don't buffer forever
+            self.process_events(ctx);
+            self.process_ipc();
+            // Use slow refresh rate when minimized to save battery
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+            return;
+        }
+
         // Request repaint during scroll animation
         let ws = self.active_workspace();
         if (ws.scroll_offset - ws.target_offset).abs() > 0.5 {

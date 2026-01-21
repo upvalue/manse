@@ -24,6 +24,7 @@ use std::io::Result;
 use std::ops::{Index, RangeInclusive};
 use std::sync::mpsc::Sender;
 use std::sync::{mpsc, Arc};
+use std::time::Duration;
 
 pub type TerminalMode = TermMode;
 pub type PtyEvent = Event;
@@ -197,7 +198,8 @@ impl TerminalBackend {
                         .unwrap_or_else(|_| {
                             panic!("pty_event_subscription_{}: sending PtyEvent is failed", id)
                         });
-                    app_context.clone().request_repaint();
+                    // Throttle to ~60fps to reduce battery usage
+                    app_context.request_repaint_after(Duration::from_millis(16));
                     match event {
                         Event::Exit => break,
                         Event::PtyWrite(pty) => pty_notifier.notify(pty.into_bytes()),
