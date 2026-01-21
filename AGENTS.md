@@ -67,7 +67,7 @@ All keybindings use ⌘ (Cmd) to avoid conflicts with terminal applications.
 
 | Key | Action |
 |-----|--------|
-| `⌘N` | Create new terminal |
+| `⌘T` | Create new terminal |
 | `⌘W` | Close focused terminal |
 | `⌘[` | Focus previous terminal |
 | `⌘]` | Focus next terminal |

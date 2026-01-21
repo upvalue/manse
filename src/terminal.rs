@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use uuid::Uuid;
 
+// howdypal!
+
 /// A terminal panel in the window manager
 pub struct TerminalPanel {
     /// Unique identifier for external reference

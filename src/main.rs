@@ -1,5 +1,6 @@
 mod app;
 mod command;
+mod config;
 mod ipc;
 mod terminal;
 mod ui;
@@ -73,6 +74,8 @@ fn main() -> eframe::Result<()> {
 
     match cli.command {
         Commands::Run { socket } => {
+            let config = config::load_config();
+
             let options = eframe::NativeOptions {
                 viewport: egui::ViewportBuilder::default()
                     .with_inner_size([1200.0, 800.0])
@@ -84,7 +87,7 @@ fn main() -> eframe::Result<()> {
             eframe::run_native(
                 "manse",
                 options,
-                Box::new(move |cc| Ok(Box::new(app::App::new(cc, Some(socket))))),
+                Box::new(move |cc| Ok(Box::new(app::App::new(cc, Some(socket), config)))),
             )
         }
         Commands::Ping { socket } => {

@@ -1,4 +1,5 @@
 use crate::command::Command;
+use crate::config::Config;
 use crate::ipc::{IpcServer, Request, Response};
 use crate::terminal::TerminalPanel;
 use crate::ui::{command_palette, sidebar, status_bar};
@@ -8,7 +9,38 @@ use egui_term::{PtyEvent, TerminalView};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::Arc;
 use uuid::Uuid;
+
+/// Noto Emoji font for emoji support
+const NOTO_EMOJI_BYTES: &[u8] = include_bytes!("../assets/fonts/NotoEmoji-Regular.ttf");
+
+/// Configure fonts with emoji fallback
+fn setup_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+
+    // Add Noto Emoji as a fallback font
+    fonts.font_data.insert(
+        "noto_emoji".to_owned(),
+        Arc::new(egui::FontData::from_static(NOTO_EMOJI_BYTES)),
+    );
+
+    // Add emoji font as fallback for proportional text (after default fonts)
+    fonts
+        .families
+        .entry(egui::FontFamily::Proportional)
+        .or_default()
+        .push("noto_emoji".to_owned());
+
+    // Add emoji font as fallback for monospace text (for terminal)
+    fonts
+        .families
+        .entry(egui::FontFamily::Monospace)
+        .or_default()
+        .push("noto_emoji".to_owned());
+
+    ctx.set_fonts(fonts);
+}
 
 /// Width ratios for terminal panels
 pub const WIDTH_RATIOS: [f32; 4] = [0.333, 0.5, 0.667, 1.0];
@@ -18,6 +50,8 @@ const SCROLL_EASING: f32 = 0.15;
 
 /// The scrolling window manager
 pub struct App {
+    /// Application configuration
+    config: Config,
     /// Terminal panels (global pool)
     panels: BTreeMap<u64, TerminalPanel>,
     /// Workspaces
@@ -41,7 +75,10 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, socket_path: Option<PathBuf>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, socket_path: Option<PathBuf>, config: Config) -> Self {
+        // Configure fonts with emoji support
+        setup_fonts(&cc.egui_ctx);
+
         let (event_tx, event_rx) = mpsc::channel();
 
         // Initialize IPC server if socket path provided
@@ -59,6 +96,7 @@ impl App {
         });
 
         let mut app = Self {
+            config,
             panels: BTreeMap::new(),
             workspaces: vec![Workspace::new("default")],
             active_workspace: 0,
@@ -391,8 +429,8 @@ impl App {
         }
 
         ctx.input(|i| {
-            // Cmd+N: New terminal
-            if i.key_pressed(egui::Key::N) {
+            // Cmd+T: New terminal (matches WezTerm)
+            if i.key_pressed(egui::Key::T) {
                 self.execute_command(Command::NewTerminal, ctx);
             }
 
@@ -580,11 +618,11 @@ impl eframe::App for App {
         // Sidebar (left)
         egui::SidePanel::left("sidebar")
             .resizable(false)
-            .exact_width(300.0)
+            .exact_width(self.config.sidebar.width)
             .frame(egui::Frame::NONE.fill(egui::Color32::from_rgb(30, 30, 30)))
             .show(ctx, |ui| {
                 if let Some(action) =
-                    sidebar::render(ui, &self.workspaces, self.active_workspace, &self.panels, self.follow_mode)
+                    sidebar::render(ui, &self.workspaces, self.active_workspace, &self.panels, self.follow_mode, &self.config.sidebar)
                 {
                     match action {
                         sidebar::SidebarAction::SwitchWorkspace(ws_idx) => {

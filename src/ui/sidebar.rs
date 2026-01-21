@@ -1,3 +1,4 @@
+use crate::config::SidebarConfig;
 use crate::terminal::TerminalPanel;
 use crate::workspace::Workspace;
 use eframe::egui;
@@ -19,6 +20,7 @@ pub fn render(
     active_workspace: usize,
     panels: &BTreeMap<u64, TerminalPanel>,
     follow_mode: bool,
+    config: &SidebarConfig,
 ) -> Option<SidebarAction> {
     let mut action: Option<SidebarAction> = None;
     let mut global_term_idx: usize = 0;
@@ -38,7 +40,7 @@ pub fn render(
         ui.horizontal(|ui| {
             ui.add_space(12.0);
             let response = ui.add(
-                egui::Label::new(egui::RichText::new(&ws.name).size(13.0).color(ws_color))
+                egui::Label::new(egui::RichText::new(&ws.name).size(config.workspace_font_size).color(ws_color))
                     .sense(egui::Sense::click()),
             );
             if response.clicked() {
@@ -70,7 +72,7 @@ pub fn render(
                         let response = ui.add(
                             egui::Label::new(
                                 egui::RichText::new(&title_text)
-                                    .size(12.0)
+                                    .size(config.terminal_font_size)
                                     .color(text_color),
                             )
                             .truncate()
@@ -94,7 +96,7 @@ pub fn render(
                             let desc_response = ui.add(
                                 egui::Label::new(
                                     egui::RichText::new(&panel.description)
-                                        .size(10.0)
+                                        .size(config.description_font_size)
                                         .color(desc_color),
                                 )
                                 .truncate()

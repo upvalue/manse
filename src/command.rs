@@ -44,7 +44,7 @@ impl Command {
 
     pub fn keybinding(&self) -> &'static str {
         match self {
-            Command::NewTerminal => "⌘N",
+            Command::NewTerminal => "⌘T",
             Command::CloseTerminal => "⌘W",
             Command::FocusPrevious => "⌘[",
             Command::FocusNext => "⌘]",
