@@ -13,6 +13,8 @@ pub enum Request {
     TermRename { terminal: String, title: String },
     /// Set terminal description by UUID
     TermDesc { terminal: String, description: String },
+    /// Move a terminal to a workspace (creates workspace if needed)
+    TermToWorkspace { terminal: String, workspace_name: String },
 }
 
 /// Response sent from server to client
@@ -31,14 +33,6 @@ impl Response {
             ok: true,
             error: None,
             result: None,
-        }
-    }
-
-    pub fn ok_with_result(result: serde_json::Value) -> Self {
-        Self {
-            ok: true,
-            error: None,
-            result: Some(result),
         }
     }
 
@@ -163,11 +157,6 @@ impl IpcServer {
                 let _ = client.flush();
             }
         }
-    }
-
-    /// Get the socket path
-    pub fn socket_path(&self) -> &Path {
-        &self.socket_path
     }
 }
 

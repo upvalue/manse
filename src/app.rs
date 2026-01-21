@@ -36,6 +36,8 @@ pub struct App {
     socket_path: Option<PathBuf>,
     /// Whether the command palette is open
     command_palette_open: bool,
+    /// Whether follow mode is active (jump to terminal by letter)
+    follow_mode: bool,
 }
 
 impl App {
@@ -58,7 +60,7 @@ impl App {
 
         let mut app = Self {
             panels: BTreeMap::new(),
-            workspaces: vec![Workspace::new("Default")],
+            workspaces: vec![Workspace::new("default")],
             active_workspace: 0,
             next_id: 0,
             event_rx,
@@ -66,6 +68,7 @@ impl App {
             ipc_server,
             socket_path,
             command_palette_open: false,
+            follow_mode: false,
         };
 
         // Create initial terminal
@@ -80,6 +83,24 @@ impl App {
 
     fn active_workspace_mut(&mut self) -> &mut Workspace {
         &mut self.workspaces[self.active_workspace]
+    }
+
+    /// Remove empty workspaces except "default". Adjusts active_workspace index if needed.
+    fn cleanup_empty_workspaces(&mut self) {
+        let mut i = 0;
+        while i < self.workspaces.len() {
+            if self.workspaces[i].panel_order.is_empty() && self.workspaces[i].name != "default" {
+                self.workspaces.remove(i);
+                // Adjust active workspace index if it was after the removed one
+                if self.active_workspace > i {
+                    self.active_workspace -= 1;
+                } else if self.active_workspace == i && self.active_workspace >= self.workspaces.len() {
+                    self.active_workspace = self.workspaces.len().saturating_sub(1);
+                }
+            } else {
+                i += 1;
+            }
+        }
     }
 
     fn create_terminal(&mut self, ctx: &egui::Context) {
@@ -238,6 +259,7 @@ impl App {
                     }
 
                     self.panels.remove(&id);
+                    self.cleanup_empty_workspaces();
 
                     // Check if all terminals are closed
                     let total_terminals: usize = self.workspaces.iter()
@@ -270,17 +292,66 @@ impl App {
             Command::FocusNext => self.focus_next(),
             Command::ShrinkTerminal => self.shrink_focused(),
             Command::GrowTerminal => self.grow_focused(),
-            Command::CommandPalette => self.command_palette_open = !self.command_palette_open,
+            Command::FollowMode => self.follow_mode = true,
         }
     }
 
+    /// Build a mapping of letter index (0-25) to (workspace_idx, terminal_idx)
+    fn build_follow_targets(&self) -> Vec<(usize, usize)> {
+        let mut targets = Vec::new();
+        for (ws_idx, ws) in self.workspaces.iter().enumerate() {
+            for (term_idx, _) in ws.panel_order.iter().enumerate() {
+                if targets.len() >= 26 {
+                    break;
+                }
+                targets.push((ws_idx, term_idx));
+            }
+            if targets.len() >= 26 {
+                break;
+            }
+        }
+        targets
+    }
+
     fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
-        // Escape closes command palette
+        // Escape closes command palette or follow mode
         if self.command_palette_open {
             if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
                 self.command_palette_open = false;
                 return;
             }
+        }
+
+        if self.follow_mode {
+            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.follow_mode = false;
+                return;
+            }
+
+            // Check for letter keys a-z
+            let letter_keys = [
+                egui::Key::A, egui::Key::B, egui::Key::C, egui::Key::D, egui::Key::E,
+                egui::Key::F, egui::Key::G, egui::Key::H, egui::Key::I, egui::Key::J,
+                egui::Key::K, egui::Key::L, egui::Key::M, egui::Key::N, egui::Key::O,
+                egui::Key::P, egui::Key::Q, egui::Key::R, egui::Key::S, egui::Key::T,
+                egui::Key::U, egui::Key::V, egui::Key::W, egui::Key::X, egui::Key::Y,
+                egui::Key::Z,
+            ];
+
+            for (idx, &key) in letter_keys.iter().enumerate() {
+                if ctx.input(|i| i.key_pressed(key)) {
+                    let targets = self.build_follow_targets();
+                    if let Some(&(ws_idx, term_idx)) = targets.get(idx) {
+                        self.active_workspace = ws_idx;
+                        self.workspaces[ws_idx].focused_index = term_idx;
+                    }
+                    self.follow_mode = false;
+                    return;
+                }
+            }
+
+            // Don't process other input while in follow mode
+            return;
         }
 
         let modifiers = ctx.input(|i| i.modifiers);
@@ -381,6 +452,72 @@ impl App {
                             Err(_) => Response::error(format!("Invalid UUID: {}", terminal)),
                         }
                     }
+                    Request::TermToWorkspace { terminal, workspace_name } => {
+                        match Uuid::parse_str(&terminal) {
+                            Ok(target_uuid) => {
+                                // Find the panel's internal id
+                                let panel_id = self.panels.iter()
+                                    .find(|(_, p)| p.uuid == target_uuid)
+                                    .map(|(&id, _)| id);
+
+                                match panel_id {
+                                    Some(id) => {
+                                        // Check if terminal is already in target workspace
+                                        let current_ws_idx = self.workspaces.iter()
+                                            .position(|ws| ws.panel_order.contains(&id));
+
+                                        if let Some(ws_idx) = current_ws_idx {
+                                            if self.workspaces[ws_idx].name == workspace_name {
+                                                // Already in target workspace, just switch to it
+                                                self.active_workspace = ws_idx;
+                                                return (client_idx, Response::ok());
+                                            }
+                                        }
+
+                                        // Remove from current workspace
+                                        for ws in &mut self.workspaces {
+                                            if let Some(pos) = ws.panel_order.iter().position(|&x| x == id) {
+                                                ws.panel_order.remove(pos);
+                                                // Adjust focused_index if needed
+                                                if ws.focused_index >= ws.panel_order.len() && ws.panel_order.len() > 0 {
+                                                    ws.focused_index = ws.panel_order.len() - 1;
+                                                }
+                                                break;
+                                            }
+                                        }
+
+                                        // Find or create target workspace
+                                        let target_ws_idx = self.workspaces.iter()
+                                            .position(|ws| ws.name == workspace_name);
+
+                                        let target_ws_idx = match target_ws_idx {
+                                            Some(idx) => idx,
+                                            None => {
+                                                // Create new workspace
+                                                self.workspaces.push(Workspace::new(&workspace_name));
+                                                self.workspaces.len() - 1
+                                            }
+                                        };
+
+                                        // Add terminal to target workspace
+                                        self.workspaces[target_ws_idx].panel_order.push(id);
+                                        self.workspaces[target_ws_idx].focused_index =
+                                            self.workspaces[target_ws_idx].panel_order.len() - 1;
+
+                                        // Switch to the target workspace
+                                        self.active_workspace = target_ws_idx;
+
+                                        // Clean up empty workspaces
+                                        self.cleanup_empty_workspaces();
+
+                                        Response::ok()
+                                    }
+                                    None => Response::error(format!("Terminal not found: {}", terminal)),
+                                }
+                            }
+                            Err(_) => Response::error(format!("Invalid UUID: {}", terminal)),
+                        }
+                    }
                 };
                 (client_idx, response)
             })
@@ -417,14 +554,21 @@ impl eframe::App for App {
         // Sidebar (left)
         egui::SidePanel::left("sidebar")
             .resizable(false)
-            .exact_width(200.0)
+            .exact_width(300.0)
             .frame(egui::Frame::NONE.fill(egui::Color32::from_rgb(30, 30, 30)))
             .show(ctx, |ui| {
-                if let Some((ws_idx, term_idx)) =
-                    sidebar::render(ui, &self.workspaces, self.active_workspace, &self.panels)
+                if let Some(action) =
+                    sidebar::render(ui, &self.workspaces, self.active_workspace, &self.panels, self.follow_mode)
                 {
-                    self.active_workspace = ws_idx;
-                    self.workspaces[ws_idx].focused_index = term_idx;
+                    match action {
+                        sidebar::SidebarAction::SwitchWorkspace(ws_idx) => {
+                            self.active_workspace = ws_idx;
+                        }
+                        sidebar::SidebarAction::FocusTerminal { workspace, terminal } => {
+                            self.active_workspace = workspace;
+                            self.workspaces[workspace].focused_index = terminal;
+                        }
+                    }
                 }
             });
 

@@ -7,7 +7,7 @@ pub enum Command {
     FocusNext,
     ShrinkTerminal,
     GrowTerminal,
-    CommandPalette,
+    FollowMode,
 }
 
 impl Command {
@@ -20,6 +20,7 @@ impl Command {
             Command::FocusNext,
             Command::ShrinkTerminal,
             Command::GrowTerminal,
+            Command::FollowMode,
         ]
     }
 
@@ -31,7 +32,7 @@ impl Command {
             Command::FocusNext => "Focus Next Terminal",
             Command::ShrinkTerminal => "Shrink Terminal",
             Command::GrowTerminal => "Grow Terminal",
-            Command::CommandPalette => "Command Palette",
+            Command::FollowMode => "Follow Mode",
         }
     }
 
@@ -43,7 +44,7 @@ impl Command {
             Command::FocusNext => "Ctrl+L",
             Command::ShrinkTerminal => "Ctrl+,",
             Command::GrowTerminal => "Ctrl+.",
-            Command::CommandPalette => "Cmd+P",
+            Command::FollowMode => "",
         }
     }
 }

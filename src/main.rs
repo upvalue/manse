@@ -21,19 +21,19 @@ enum Commands {
     /// Run the terminal window manager
     Run {
         /// Path to IPC socket
-        #[arg(short, long)]
-        socket: Option<PathBuf>,
+        #[arg(short, long, default_value = "/tmp/manse.sock")]
+        socket: PathBuf,
     },
     /// Ping a running instance
     Ping {
         /// Path to IPC socket
-        #[arg(short, long)]
+        #[arg(short, long, default_value = "/tmp/manse.sock")]
         socket: PathBuf,
     },
     /// Rename a terminal
     TermRename {
-        /// Path to IPC socket (defaults to $MANSE_SOCKET)
-        #[arg(short, long, env = "MANSE_SOCKET")]
+        /// Path to IPC socket (defaults to $MANSE_SOCKET or /tmp/manse.sock)
+        #[arg(short, long, env = "MANSE_SOCKET", default_value = "/tmp/manse.sock")]
         socket: PathBuf,
         /// Terminal UUID (defaults to $MANSE_TERMINAL)
         #[arg(short, long, env = "MANSE_TERMINAL")]
@@ -43,14 +43,26 @@ enum Commands {
     },
     /// Set terminal description
     TermDesc {
-        /// Path to IPC socket (defaults to $MANSE_SOCKET)
-        #[arg(short, long, env = "MANSE_SOCKET")]
+        /// Path to IPC socket (defaults to $MANSE_SOCKET or /tmp/manse.sock)
+        #[arg(short, long, env = "MANSE_SOCKET", default_value = "/tmp/manse.sock")]
         socket: PathBuf,
         /// Terminal UUID (defaults to $MANSE_TERMINAL)
         #[arg(short, long, env = "MANSE_TERMINAL")]
         terminal: String,
         /// Description for the terminal
         description: String,
+    },
+    /// Move a terminal to a workspace (creates workspace if needed)
+    TermToWorkspace {
+        /// Path to IPC socket (defaults to $MANSE_SOCKET or /tmp/manse.sock)
+        #[arg(short, long, env = "MANSE_SOCKET", default_value = "/tmp/manse.sock")]
+        socket: PathBuf,
+        /// Terminal UUID (defaults to $MANSE_TERMINAL)
+        #[arg(short, long, env = "MANSE_TERMINAL")]
+        terminal: String,
+        /// Name of the workspace to move to
+        #[arg(short, long)]
+        workspace_name: String,
     },
 }
 
@@ -72,7 +84,7 @@ fn main() -> eframe::Result<()> {
             eframe::run_native(
                 "manse",
                 options,
-                Box::new(move |cc| Ok(Box::new(app::App::new(cc, socket)))),
+                Box::new(move |cc| Ok(Box::new(app::App::new(cc, Some(socket))))),
             )
         }
         Commands::Ping { socket } => {
@@ -134,6 +146,33 @@ fn main() -> eframe::Result<()> {
             } else {
                 eprintln!(
                     "Failed to set description: {}",
+                    response.error.unwrap_or_else(|| "Unknown error".into())
+                );
+            }
+            Ok(())
+        }
+        Commands::TermToWorkspace {
+            socket,
+            terminal,
+            workspace_name,
+        } => {
+            let mut client = ipc::IpcClient::connect(&socket)
+                .map_err(|e| eprintln!("Failed to connect: {}", e))
+                .unwrap();
+
+            let response = client
+                .request(&ipc::Request::TermToWorkspace {
+                    terminal,
+                    workspace_name: workspace_name.clone(),
+                })
+                .map_err(|e| eprintln!("Request failed: {}", e))
+                .unwrap();
+
+            if response.ok {
+                println!("Terminal moved to workspace '{}'", workspace_name);
+            } else {
+                eprintln!(
+                    "Failed to move terminal: {}",
                     response.error.unwrap_or_else(|| "Unknown error".into())
                 );
             }

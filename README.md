@@ -1,19 +1,15 @@
 # manse
 
-Manse is a terminal manager app
+An experiment in project-aware scrolling terminal emulation.
 
 The basic theory of manse:
 
 - Scrolling window management (PaperWM, niri, etc) is the right abstraction for
   managing lots of windows
 
-- Terminal sessions don't need to be a black box to the application embedding
-  them. Some information about what the active application is doing is really
-  helpful in navigating and organizing.
-
-- However, terminal is the right main interface for working on projects.
-  Terminal apps are manifold and composable, UI apps are always too tied to
-  specific workflows
+- Terminal sessions don't need to be a black box to the emulator. Some
+  information about what the active application is doing is really helpful in
+  navigating and organizing terminal sessions.
 
 So let's imagine the following scenario:
 
@@ -48,10 +44,17 @@ the running application is, you have more of a tree:
 
 # How does it work?
 
+## Alacritty
+
+All of the heavy lifting and any usability of this application can be
+attributed to the fact that alacritty is exposed as a library. Thanks also to
+[egui_term](https://github.com/Harzu/egui_term/) which wraps alacritty for use
+in egui.
+
 ## Unix socket + env vars + .manse.json
 
 Manse exposes a unix socket, so its CLI also serves as an interface for
-terminal applications and others to inspect and modify its space.
+terminal applications and others to inspect and modify its state.
 
 `.manse.json` is currently a simple encoding of what manse project, if any, a
 directory is attached to. (This allows us to auto-group e.g. multiple git
@@ -64,4 +67,4 @@ some rich information about what's going on in them.
 # Caution: Vibe coded
 
 The application has been entirely vibe coded and may contain slop. This README
-is also slop, albeit the kind of slop that was written by a human.
+is also slop, albeit the kind of slop that was 100% written by a human.

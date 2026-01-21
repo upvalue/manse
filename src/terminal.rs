@@ -9,8 +9,6 @@ use uuid::Uuid;
 pub struct TerminalPanel {
     /// Unique identifier for external reference
     pub uuid: Uuid,
-    /// Internal ID for PTY event routing
-    pub id: u64,
     pub backend: TerminalBackend,
     pub width_ratio: f32,
     /// Terminal title (from shell escape sequences)
@@ -57,7 +55,6 @@ impl TerminalPanel {
 
         Self {
             uuid,
-            id,
             backend,
             width_ratio: 1.0,
             title: String::from("Terminal"),

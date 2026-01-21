@@ -1,9 +1,5 @@
-use uuid::Uuid;
-
 /// A workspace containing a horizontal strip of terminals
 pub struct Workspace {
-    /// Unique identifier
-    pub uuid: Uuid,
     /// Workspace name
     pub name: String,
     /// Order of panels in this workspace (left to right)
@@ -19,7 +15,6 @@ pub struct Workspace {
 impl Workspace {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
-            uuid: Uuid::new_v4(),
             name: name.into(),
             panel_order: Vec::new(),
             focused_index: 0,
