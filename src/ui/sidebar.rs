@@ -1,4 +1,5 @@
 use crate::config::SidebarConfig;
+use crate::icons;
 use crate::terminal::TerminalPanel;
 use crate::workspace::Workspace;
 use eframe::egui;
@@ -48,10 +49,12 @@ pub fn render(
             }
         });
 
-        // Terminals in this workspace (indented)
+        // Terminals in this workspace (indented less since icon provides spacing)
         ui.horizontal(|ui| {
-            ui.add_space(24.0);
+            ui.add_space(16.0);
             ui.vertical(|ui| {
+                let icon_size = config.terminal_title_font_size;
+
                 for (term_idx, &id) in ws.panel_order.iter().enumerate() {
                     if let Some(panel) = panels.get(&id) {
                         let is_focused = is_active_workspace && term_idx == ws.focused_index;
@@ -61,6 +64,9 @@ pub fn render(
                             egui::Color32::from_rgb(180, 180, 180)
                         };
 
+                        // Detect application icon from title
+                        let icon = icons::detect_icon(panel.display_title());
+
                         // Title (with optional follow mode letter prefix)
                         let title_text = if follow_mode && global_term_idx < 26 {
                             let letter = (b'a' + global_term_idx as u8) as char;
@@ -69,15 +75,32 @@ pub fn render(
                             panel.display_title().to_string()
                         };
 
-                        let response = ui.add(
-                            egui::Label::new(
-                                egui::RichText::new(&title_text)
-                                    .size(config.terminal_title_font_size)
-                                    .color(text_color),
+                        // Render icon slot and title horizontally
+                        let response = ui.horizontal(|ui| {
+                            // Always allocate icon-sized space for alignment
+                            let (icon_rect, _) = ui.allocate_exact_size(
+                                egui::vec2(icon_size, icon_size),
+                                egui::Sense::hover(),
+                            );
+
+                            // Render icon if detected
+                            if let Some(app_icon) = icon {
+                                app_icon.load(ui.ctx());
+                                egui::Image::new(app_icon.image_uri())
+                                    .fit_to_exact_size(egui::vec2(icon_size, icon_size))
+                                    .paint_at(ui, icon_rect);
+                            }
+
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(&title_text)
+                                        .size(config.terminal_title_font_size)
+                                        .color(text_color),
+                                )
+                                .truncate()
+                                .sense(egui::Sense::click()),
                             )
-                            .truncate()
-                            .sense(egui::Sense::click()),
-                        );
+                        }).inner;
 
                         if response.clicked() {
                             action = Some(SidebarAction::FocusTerminal {

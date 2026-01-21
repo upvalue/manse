@@ -4,7 +4,14 @@ An experiment in project and application aware scrolling terminal emulation.
 Make as many terminals as you want and scroll between them. Terminals are
 automatically grouped into workspaces, based on the project you're in, and
 plugins for apps/shells can update the UI to reflect what's going on in a given
-terminal.
+terminal so you have better visibility.
+
+# Caution: Vibe coded
+
+This has been mostly vibe coded and may contain slop. This README is also slop,
+albeit the kind of slop that was 100% written by a human. Aside from lacking
+basic features that most terminal emulators have, it's also pretty hard on
+battery usage at the moment. Mostly trying it out to see how it feels.
 
 # Rambling
 
@@ -20,12 +27,12 @@ The basic theory of manse:
 So let's imagine the following scenario:
 
 You have two projects open, at `$HOME/project1` and `$HOME/project2`. You have
-three claude code sessions open in the first and one in the second, and at
-least one random terminal session open in both.
+three agent sessions open in the first and one in the second, and at least one
+random terminal session open in both.
 
 In a basic terminal emulator, this might look like having 5 tabs open, one
-after the other. But when you try to scale this up, it's a bit too easy to get
-lost or shuffle them around.
+after the other. But when you try to scale this up, it's easy to get lost.
+Things get shuffled around and terminals get noisy.
 
 In manse, this splits up based on project. So you end up with two different
 workspaces, one for project1 and one for project2. 
@@ -70,7 +77,7 @@ Information about the active manse workspace and instance are available in the
 program environment; combined with the above this also allows programs to supply
 some rich information about what's going on in them.
 
-# Caution: Vibe coded
 
-The application has been entirely vibe coded and may contain slop. This README
-is also slop, albeit the kind of slop that was 100% written by a human.
+# Icons
+
+Used without any particular permission. 

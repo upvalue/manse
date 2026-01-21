@@ -9,8 +9,10 @@ path = "src/main.rs"
 
 [dependencies]
 # GUI
-eframe = "0.33"
+eframe = { version = "0.33", features = ["default_fonts"] }
 egui = "0.33"
+egui_extras = { version = "0.33", features = ["image"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 egui_term = { path = "egui_term" }
 
 # Utilities

@@ -1,6 +1,7 @@
 mod app;
 mod command;
 mod config;
+mod icons;
 mod ipc;
 mod terminal;
 mod ui;

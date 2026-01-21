@@ -40,6 +40,9 @@ fn setup_fonts(ctx: &egui::Context) {
         .push("noto_emoji".to_owned());
 
     ctx.set_fonts(fonts);
+
+    // Install image loaders for PNG support
+    egui_extras::install_image_loaders(ctx);
 }
 
 /// Width ratios for terminal panels
