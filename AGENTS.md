@@ -63,14 +63,19 @@ manse-rs/
 
 ### Controls
 
+All keybindings use ⌘ (Cmd) to avoid conflicts with terminal applications.
+
 | Key | Action |
 |-----|--------|
-| `Ctrl+N` | Create new terminal |
-| `Ctrl+W` | Close focused terminal |
-| `Ctrl+H` | Focus previous terminal |
-| `Ctrl+L` | Focus next terminal |
-| `Ctrl+,` | Shrink focused terminal |
-| `Ctrl+.` | Grow focused terminal |
+| `⌘N` | Create new terminal |
+| `⌘W` | Close focused terminal |
+| `⌘[` | Focus previous terminal |
+| `⌘]` | Focus next terminal |
+| `⌘⇧[` | Swap with previous terminal |
+| `⌘⇧]` | Swap with next terminal |
+| `⌘-` | Shrink focused terminal |
+| `⌘=` | Grow focused terminal |
+| `⌘P` | Toggle command palette |
 
 ### CLI Usage
 

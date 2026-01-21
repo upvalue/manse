@@ -5,6 +5,8 @@ pub enum Command {
     CloseTerminal,
     FocusPrevious,
     FocusNext,
+    SwapWithPrevious,
+    SwapWithNext,
     ShrinkTerminal,
     GrowTerminal,
     FollowMode,
@@ -18,6 +20,8 @@ impl Command {
             Command::CloseTerminal,
             Command::FocusPrevious,
             Command::FocusNext,
+            Command::SwapWithPrevious,
+            Command::SwapWithNext,
             Command::ShrinkTerminal,
             Command::GrowTerminal,
             Command::FollowMode,
@@ -30,6 +34,8 @@ impl Command {
             Command::CloseTerminal => "Close Terminal",
             Command::FocusPrevious => "Focus Previous Terminal",
             Command::FocusNext => "Focus Next Terminal",
+            Command::SwapWithPrevious => "Swap with Previous Terminal",
+            Command::SwapWithNext => "Swap with Next Terminal",
             Command::ShrinkTerminal => "Shrink Terminal",
             Command::GrowTerminal => "Grow Terminal",
             Command::FollowMode => "Follow Mode",
@@ -38,12 +44,14 @@ impl Command {
 
     pub fn keybinding(&self) -> &'static str {
         match self {
-            Command::NewTerminal => "Ctrl+N",
-            Command::CloseTerminal => "Ctrl+W",
-            Command::FocusPrevious => "Ctrl+H",
-            Command::FocusNext => "Ctrl+L",
-            Command::ShrinkTerminal => "Ctrl+,",
-            Command::GrowTerminal => "Ctrl+.",
+            Command::NewTerminal => "⌘N",
+            Command::CloseTerminal => "⌘W",
+            Command::FocusPrevious => "⌘[",
+            Command::FocusNext => "⌘]",
+            Command::SwapWithPrevious => "⌘⇧[",
+            Command::SwapWithNext => "⌘⇧]",
+            Command::ShrinkTerminal => "⌘-",
+            Command::GrowTerminal => "⌘=",
             Command::FollowMode => "",
         }
     }

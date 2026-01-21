@@ -164,6 +164,22 @@ impl App {
         }
     }
 
+    fn swap_with_prev(&mut self) {
+        let ws = self.active_workspace_mut();
+        if ws.focused_index > 0 {
+            ws.panel_order.swap(ws.focused_index, ws.focused_index - 1);
+            ws.focused_index -= 1;
+        }
+    }
+
+    fn swap_with_next(&mut self) {
+        let ws = self.active_workspace_mut();
+        if ws.focused_index < ws.panel_order.len().saturating_sub(1) {
+            ws.panel_order.swap(ws.focused_index, ws.focused_index + 1);
+            ws.focused_index += 1;
+        }
+    }
+
     fn close_focused(&mut self) {
         let ws = self.active_workspace_mut();
         if ws.panel_order.len() <= 1 {
@@ -290,6 +306,8 @@ impl App {
             Command::CloseTerminal => self.close_focused(),
             Command::FocusPrevious => self.focus_prev(),
             Command::FocusNext => self.focus_next(),
+            Command::SwapWithPrevious => self.swap_with_prev(),
+            Command::SwapWithNext => self.swap_with_next(),
             Command::ShrinkTerminal => self.shrink_focused(),
             Command::GrowTerminal => self.grow_focused(),
             Command::FollowMode => self.follow_mode = true,
@@ -367,39 +385,47 @@ impl App {
             return;
         }
 
-        // Only process shortcuts when Ctrl (or Cmd on Mac) is held
-        if !modifiers.ctrl && !modifiers.command {
+        // Only process shortcuts when Cmd is held (macOS-style keybindings)
+        if !modifiers.command {
             return;
         }
 
         ctx.input(|i| {
-            // Ctrl+N: New terminal
+            // Cmd+N: New terminal
             if i.key_pressed(egui::Key::N) {
                 self.execute_command(Command::NewTerminal, ctx);
             }
 
-            // Ctrl+W: Close focused terminal
+            // Cmd+W: Close focused terminal
             if i.key_pressed(egui::Key::W) {
                 self.execute_command(Command::CloseTerminal, ctx);
             }
 
-            // Ctrl+H: Focus previous
-            if i.key_pressed(egui::Key::H) {
-                self.execute_command(Command::FocusPrevious, ctx);
+            // Cmd+[ / Cmd+Shift+[: Focus previous / Swap with previous
+            if i.key_pressed(egui::Key::OpenBracket) {
+                if modifiers.shift {
+                    self.execute_command(Command::SwapWithPrevious, ctx);
+                } else {
+                    self.execute_command(Command::FocusPrevious, ctx);
+                }
             }
 
-            // Ctrl+L: Focus next
-            if i.key_pressed(egui::Key::L) {
-                self.execute_command(Command::FocusNext, ctx);
+            // Cmd+] / Cmd+Shift+]: Focus next / Swap with next
+            if i.key_pressed(egui::Key::CloseBracket) {
+                if modifiers.shift {
+                    self.execute_command(Command::SwapWithNext, ctx);
+                } else {
+                    self.execute_command(Command::FocusNext, ctx);
+                }
             }
 
-            // Ctrl+,: Shrink focused
-            if i.key_pressed(egui::Key::Comma) {
+            // Cmd+-: Shrink focused
+            if i.key_pressed(egui::Key::Minus) {
                 self.execute_command(Command::ShrinkTerminal, ctx);
             }
 
-            // Ctrl+.: Grow focused
-            if i.key_pressed(egui::Key::Period) {
+            // Cmd+=: Grow focused
+            if i.key_pressed(egui::Key::Equals) {
                 self.execute_command(Command::GrowTerminal, ctx);
             }
         });
