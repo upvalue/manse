@@ -6,7 +6,7 @@ use crate::ui::{command_palette, sidebar, status_bar};
 use crate::workspace::Workspace;
 use eframe::egui;
 use egui_term::{FontSettings, PtyEvent, TerminalFont, TerminalView};
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
@@ -15,6 +15,8 @@ use uuid::Uuid;
 /// Font data
 const JETBRAINS_MONO_BYTES: &[u8] = include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf");
 const SYMBOLS_NERD_BYTES: &[u8] = include_bytes!("../assets/fonts/SymbolsNerdFont-Regular.ttf");
+const NOTO_SYMBOLS_BYTES: &[u8] = include_bytes!("../assets/fonts/NotoSansSymbols-Regular.ttf");
+const NOTO_SYMBOLS2_BYTES: &[u8] = include_bytes!("../assets/fonts/NotoSansSymbols2-Regular.ttf");
 const NOTO_EMOJI_BYTES: &[u8] = include_bytes!("../assets/fonts/NotoEmoji-Regular.ttf");
 
 /// Configure fonts: JetBrains Mono primary, Nerd Font + Noto Emoji fallbacks
@@ -31,19 +33,31 @@ fn setup_fonts(ctx: &egui::Context) {
         Arc::new(egui::FontData::from_static(SYMBOLS_NERD_BYTES)),
     );
     fonts.font_data.insert(
+        "noto_symbols".to_owned(),
+        Arc::new(egui::FontData::from_static(NOTO_SYMBOLS_BYTES)),
+    );
+    fonts.font_data.insert(
+        "noto_symbols2".to_owned(),
+        Arc::new(egui::FontData::from_static(NOTO_SYMBOLS2_BYTES)),
+    );
+    fonts.font_data.insert(
         "noto_emoji".to_owned(),
         Arc::new(egui::FontData::from_static(NOTO_EMOJI_BYTES)),
     );
 
-    // Monospace: JetBrains Mono first, then Nerd Font, then Emoji, keep system defaults
+    // Monospace: JetBrains Mono first, then Nerd Font, then Symbols, then Emoji
     let mono = fonts.families.get_mut(&egui::FontFamily::Monospace).unwrap();
     mono.insert(0, "jetbrains_mono".to_owned());
     mono.push("symbols_nerd".to_owned());
+    mono.push("noto_symbols".to_owned());
+    mono.push("noto_symbols2".to_owned());
     mono.push("noto_emoji".to_owned());
 
     // Proportional: keep defaults but add fallbacks
     let prop = fonts.families.get_mut(&egui::FontFamily::Proportional).unwrap();
     prop.push("symbols_nerd".to_owned());
+    prop.push("noto_symbols".to_owned());
+    prop.push("noto_symbols2".to_owned());
     prop.push("noto_emoji".to_owned());
 
     ctx.set_fonts(fonts);
@@ -63,7 +77,7 @@ pub struct App {
     /// Application configuration
     config: Config,
     /// Terminal panels (global pool)
-    panels: BTreeMap<u64, TerminalPanel>,
+    panels: HashMap<u64, TerminalPanel>,
     /// Workspaces
     workspaces: Vec<Workspace>,
     /// Currently active workspace index
@@ -104,7 +118,7 @@ impl App {
 
         let mut app = Self {
             config,
-            panels: BTreeMap::new(),
+            panels: HashMap::new(),
             workspaces: vec![Workspace::new("default")],
             active_workspace: 0,
             next_id: 0,
@@ -167,6 +181,7 @@ impl App {
             let insert_pos = ws.focused_index + 1;
             ws.panel_order.insert(insert_pos, id);
         }
+        ws.invalidate_positions();
     }
 
     fn focused_panel(&self) -> Option<&TerminalPanel> {
@@ -207,6 +222,7 @@ impl App {
                 }
             }
         }
+        self.active_workspace_mut().invalidate_positions();
     }
 
     fn shrink_focused(&mut self) {
@@ -219,6 +235,7 @@ impl App {
                 }
             }
         }
+        self.active_workspace_mut().invalidate_positions();
     }
 
     fn swap_with_prev(&mut self) {
@@ -226,6 +243,7 @@ impl App {
         if ws.focused_index > 0 {
             ws.panel_order.swap(ws.focused_index, ws.focused_index - 1);
             ws.focused_index -= 1;
+            ws.invalidate_positions();
         }
     }
 
@@ -234,6 +252,7 @@ impl App {
         if ws.focused_index < ws.panel_order.len().saturating_sub(1) {
             ws.panel_order.swap(ws.focused_index, ws.focused_index + 1);
             ws.focused_index += 1;
+            ws.invalidate_positions();
         }
     }
 
@@ -252,11 +271,46 @@ impl App {
             if ws.focused_index >= ws.panel_order.len() {
                 ws.focused_index = ws.panel_order.len().saturating_sub(1);
             }
+            ws.invalidate_positions();
         }
+    }
+
+    /// Compute and cache terminal positions for the active workspace.
+    /// Returns a reference to the cached positions.
+    fn ensure_positions_cached(&mut self, viewport_width: f32) {
+        let ws = self.active_workspace();
+        // Check if cache is valid
+        if (ws.cached_positions.viewport_width - viewport_width).abs() < 0.1
+            && ws.cached_positions.positions.len() == ws.panel_order.len()
+        {
+            return;
+        }
+
+        // Recompute positions
+        let mut positions = Vec::with_capacity(ws.panel_order.len());
+        let mut x_pos = 0.0;
+        for &id in &ws.panel_order {
+            if let Some(panel) = self.panels.get(&id) {
+                let width = panel.pixel_width(viewport_width);
+                positions.push((id, x_pos, width));
+                x_pos += width;
+            }
+        }
+
+        let ws = self.active_workspace_mut();
+        ws.cached_positions.positions = positions;
+        ws.cached_positions.viewport_width = viewport_width;
     }
 
     fn terminal_x_position(&self, index: usize, viewport_width: f32) -> f32 {
         let ws = self.active_workspace();
+        // Use cached positions if available and valid
+        if (ws.cached_positions.viewport_width - viewport_width).abs() < 0.1 {
+            if let Some(&(_, x, _)) = ws.cached_positions.positions.get(index) {
+                return x;
+            }
+        }
+        // Fallback to computing
         let mut x = 0.0;
         for i in 0..index {
             if let Some(&id) = ws.panel_order.get(i) {
@@ -270,6 +324,16 @@ impl App {
 
     fn total_content_width(&self, viewport_width: f32) -> f32 {
         let ws = self.active_workspace();
+        // Use cached positions if available and valid
+        if (ws.cached_positions.viewport_width - viewport_width).abs() < 0.1
+            && !ws.cached_positions.positions.is_empty()
+        {
+            // Total width is the last position's x + width
+            if let Some(&(_, x, w)) = ws.cached_positions.positions.last() {
+                return x + w;
+            }
+        }
+        // Fallback
         ws.panel_order
             .iter()
             .filter_map(|id| self.panels.get(id))
@@ -327,6 +391,7 @@ impl App {
                             if ws.focused_index >= ws.panel_order.len() {
                                 ws.focused_index = ws.panel_order.len().saturating_sub(1);
                             }
+                            ws.invalidate_positions();
                             break;
                         }
                     }
@@ -543,6 +608,26 @@ impl App {
                         Err(_) => Response::error(format!("Invalid UUID: {}", terminal)),
                     }
                 }
+                Request::TermEmoji { ref terminal, ref emoji } => {
+                    match Uuid::parse_str(&terminal) {
+                        Ok(target_uuid) => {
+                            let panel = self.panels.values_mut()
+                                .find(|p| p.uuid == target_uuid);
+
+                            if let Some(panel) = panel {
+                                if emoji.is_empty() {
+                                    panel.emoji = None;
+                                } else {
+                                    panel.emoji = Some(emoji.clone());
+                                }
+                                Response::ok()
+                            } else {
+                                Response::error(format!("Terminal not found: {}", terminal))
+                            }
+                        }
+                        Err(_) => Response::error(format!("Invalid UUID: {}", terminal)),
+                    }
+                }
                 Request::TermToWorkspace { ref terminal, ref workspace_name } => {
                     match Uuid::parse_str(&terminal) {
                         Ok(target_uuid) => {
@@ -574,6 +659,7 @@ impl App {
                                             if ws.focused_index >= ws.panel_order.len() && !ws.panel_order.is_empty() {
                                                 ws.focused_index = ws.panel_order.len() - 1;
                                             }
+                                            ws.invalidate_positions();
                                             break;
                                         }
                                     }
@@ -595,6 +681,7 @@ impl App {
                                     self.workspaces[target_ws_idx].panel_order.push(id);
                                     self.workspaces[target_ws_idx].focused_index =
                                         self.workspaces[target_ws_idx].panel_order.len() - 1;
+                                    self.workspaces[target_ws_idx].invalidate_positions();
 
                                     // Switch to the target workspace
                                     self.active_workspace = target_ws_idx;
@@ -698,26 +785,20 @@ impl eframe::App for App {
                 // Scroll to focused terminal
                 self.scroll_to_focused(viewport_width);
 
-                // Get active workspace state
+                // Ensure terminal positions are cached
+                self.ensure_positions_cached(viewport_width);
+
+                // Get active workspace state (no clone needed - use cached positions)
                 let scroll_offset = self.active_workspace().scroll_offset;
-                let panel_order = self.active_workspace().panel_order.clone();
                 let focused_index = self.active_workspace().focused_index;
+                // Clone the cached positions (small, fixed-size tuples - much cheaper than panel_order clone + recompute)
+                let terminal_positions = self.active_workspace().cached_positions.positions.clone();
 
                 // Add top padding
                 ui.add_space(padding);
 
-                // Calculate terminal positions and visibility
                 let border_width = 2.0;
                 let terminal_font_size = self.config.terminal_font_size;
-                let mut terminal_positions: Vec<(u64, f32, f32)> = Vec::new(); // (id, x_start, width)
-                let mut x_pos = 0.0;
-                for &id in &panel_order {
-                    if let Some(panel) = self.panels.get(&id) {
-                        let width = panel.pixel_width(viewport_width);
-                        terminal_positions.push((id, x_pos, width));
-                        x_pos += width;
-                    }
-                }
 
                 // Determine visible range (with some margin for partial visibility)
                 let view_left = scroll_offset;

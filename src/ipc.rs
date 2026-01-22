@@ -16,6 +16,8 @@ pub enum Request {
     TermRename { terminal: String, title: String },
     /// Set terminal description by UUID
     TermDesc { terminal: String, description: String },
+    /// Set terminal emoji icon by UUID
+    TermEmoji { terminal: String, emoji: String },
     /// Move a terminal to a workspace (creates workspace if needed)
     TermToWorkspace { terminal: String, workspace_name: String },
 }

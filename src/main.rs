@@ -54,6 +54,17 @@ enum Commands {
         /// Description for the terminal
         description: String,
     },
+    /// Set terminal emoji icon
+    TermEmoji {
+        /// Path to IPC socket (defaults to $MANSE_SOCKET or /tmp/manse.sock)
+        #[arg(short, long, env = "MANSE_SOCKET", default_value = "/tmp/manse.sock")]
+        socket: PathBuf,
+        /// Terminal UUID (defaults to $MANSE_TERMINAL)
+        #[arg(short, long, env = "MANSE_TERMINAL")]
+        terminal: String,
+        /// Emoji icon for the terminal (empty string to clear)
+        emoji: String,
+    },
     /// Move a terminal to a workspace (creates workspace if needed)
     TermToWorkspace {
         /// Path to IPC socket (defaults to $MANSE_SOCKET or /tmp/manse.sock)
@@ -150,6 +161,30 @@ fn main() -> eframe::Result<()> {
             } else {
                 eprintln!(
                     "Failed to set description: {}",
+                    response.error.unwrap_or_else(|| "Unknown error".into())
+                );
+            }
+            Ok(())
+        }
+        Commands::TermEmoji {
+            socket,
+            terminal,
+            emoji,
+        } => {
+            let mut client = ipc::IpcClient::connect(&socket)
+                .map_err(|e| eprintln!("Failed to connect: {}", e))
+                .unwrap();
+
+            let response = client
+                .request(&ipc::Request::TermEmoji { terminal, emoji })
+                .map_err(|e| eprintln!("Request failed: {}", e))
+                .unwrap();
+
+            if response.ok {
+                println!("Terminal emoji set");
+            } else {
+                eprintln!(
+                    "Failed to set emoji: {}",
                     response.error.unwrap_or_else(|| "Unknown error".into())
                 );
             }

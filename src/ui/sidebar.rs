@@ -3,7 +3,8 @@ use crate::icons;
 use crate::terminal::TerminalPanel;
 use crate::workspace::Workspace;
 use eframe::egui;
-use std::collections::BTreeMap;
+use std::borrow::Cow;
+use std::collections::HashMap;
 
 /// Result of sidebar interaction
 pub enum SidebarAction {
@@ -19,7 +20,7 @@ pub fn render(
     ui: &mut egui::Ui,
     workspaces: &[Workspace],
     active_workspace: usize,
-    panels: &BTreeMap<u64, TerminalPanel>,
+    panels: &HashMap<u64, TerminalPanel>,
     follow_mode: bool,
     config: &SidebarConfig,
 ) -> Option<SidebarAction> {
@@ -53,8 +54,6 @@ pub fn render(
         ui.horizontal(|ui| {
             ui.add_space(16.0);
             ui.vertical(|ui| {
-                let icon_size = config.terminal_title_font_size;
-
                 for (term_idx, &id) in ws.panel_order.iter().enumerate() {
                     if let Some(panel) = panels.get(&id) {
                         let is_focused = is_active_workspace && term_idx == ws.focused_index;
@@ -64,36 +63,31 @@ pub fn render(
                             egui::Color32::from_rgb(180, 180, 180)
                         };
 
-                        // Detect application icon from title
-                        let icon = icons::detect_icon(panel.display_title());
+                        // Use custom emoji if set, otherwise auto-detect from title
+                        let emoji = panel.emoji.as_deref()
+                            .or_else(|| icons::detect_emoji(panel.display_title()));
 
                         // Title (with optional follow mode letter prefix)
-                        let title_text = if follow_mode && global_term_idx < 26 {
+                        // Use Cow to avoid allocation when not in follow mode
+                        let title_text: Cow<str> = if follow_mode && global_term_idx < 26 {
                             let letter = (b'a' + global_term_idx as u8) as char;
-                            format!("{} {}", letter, panel.display_title())
+                            Cow::Owned(format!("{} {}", letter, panel.display_title()))
                         } else {
-                            panel.display_title().to_string()
+                            Cow::Borrowed(panel.display_title())
                         };
 
-                        // Render icon slot and title horizontally
+                        // Render emoji and title horizontally
                         let response = ui.horizontal(|ui| {
-                            // Always allocate icon-sized space for alignment
-                            let (icon_rect, _) = ui.allocate_exact_size(
-                                egui::vec2(icon_size, icon_size),
-                                egui::Sense::hover(),
+                            // Show emoji if set, otherwise empty space for alignment
+                            let emoji_text = emoji.unwrap_or("  ");
+                            ui.label(
+                                egui::RichText::new(emoji_text)
+                                    .size(config.terminal_title_font_size),
                             );
-
-                            // Render icon if detected
-                            if let Some(app_icon) = icon {
-                                app_icon.load(ui.ctx());
-                                egui::Image::new(app_icon.image_uri())
-                                    .fit_to_exact_size(egui::vec2(icon_size, icon_size))
-                                    .paint_at(ui, icon_rect);
-                            }
 
                             ui.add(
                                 egui::Label::new(
-                                    egui::RichText::new(&title_text)
+                                    egui::RichText::new(&*title_text)
                                         .size(config.terminal_title_font_size)
                                         .color(text_color),
                                 )

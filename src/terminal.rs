@@ -19,6 +19,8 @@ pub struct TerminalPanel {
     pub custom_title: Option<String>,
     /// Optional description set via IPC
     pub description: String,
+    /// Optional emoji icon set via IPC
+    pub emoji: Option<String>,
     /// Current working directory (from OSC 7 escape sequences)
     pub current_working_directory: Option<PathBuf>,
 }
@@ -68,6 +70,7 @@ impl TerminalPanel {
             title: String::from("Terminal"),
             custom_title: None,
             description: String::new(),
+            emoji: None,
             current_working_directory: working_directory,
         }
     }
