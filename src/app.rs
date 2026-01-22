@@ -12,32 +12,39 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use uuid::Uuid;
 
-/// Noto Emoji font for emoji support
+/// Font data
+const JETBRAINS_MONO_BYTES: &[u8] = include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf");
+const SYMBOLS_NERD_BYTES: &[u8] = include_bytes!("../assets/fonts/SymbolsNerdFont-Regular.ttf");
 const NOTO_EMOJI_BYTES: &[u8] = include_bytes!("../assets/fonts/NotoEmoji-Regular.ttf");
 
-/// Configure fonts with emoji fallback
+/// Configure fonts: JetBrains Mono primary, Nerd Font + Noto Emoji fallbacks
 fn setup_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
 
-    // Add Noto Emoji as a fallback font
+    // Add font data
+    fonts.font_data.insert(
+        "jetbrains_mono".to_owned(),
+        Arc::new(egui::FontData::from_static(JETBRAINS_MONO_BYTES)),
+    );
+    fonts.font_data.insert(
+        "symbols_nerd".to_owned(),
+        Arc::new(egui::FontData::from_static(SYMBOLS_NERD_BYTES)),
+    );
     fonts.font_data.insert(
         "noto_emoji".to_owned(),
         Arc::new(egui::FontData::from_static(NOTO_EMOJI_BYTES)),
     );
 
-    // Add emoji font as fallback for proportional text (after default fonts)
-    fonts
-        .families
-        .entry(egui::FontFamily::Proportional)
-        .or_default()
-        .push("noto_emoji".to_owned());
+    // Monospace: JetBrains Mono first, then Nerd Font, then Emoji, keep system defaults
+    let mono = fonts.families.get_mut(&egui::FontFamily::Monospace).unwrap();
+    mono.insert(0, "jetbrains_mono".to_owned());
+    mono.push("symbols_nerd".to_owned());
+    mono.push("noto_emoji".to_owned());
 
-    // Add emoji font as fallback for monospace text (for terminal)
-    fonts
-        .families
-        .entry(egui::FontFamily::Monospace)
-        .or_default()
-        .push("noto_emoji".to_owned());
+    // Proportional: keep defaults but add fallbacks
+    let prop = fonts.families.get_mut(&egui::FontFamily::Proportional).unwrap();
+    prop.push("symbols_nerd".to_owned());
+    prop.push("noto_emoji".to_owned());
 
     ctx.set_fonts(fonts);
 

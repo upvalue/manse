@@ -19,27 +19,61 @@ Manse is a prototype scrolling window manager for terminal emulators, inspired b
    - Full PTY-based terminal emulation via egui_term/alacritty_terminal
    - Spawns user's default shell ($SHELL)
    - Proper VT/ANSI escape sequence handling
+   - OSC 7 support for current working directory tracking
 
 3. **Unix Socket IPC**
    - Control socket for external tooling
-   - Ping command for liveness checking
+   - Multithreaded IPC listener
    - Stale socket detection and cleanup
    - Duplicate instance prevention
+   - Terminal management commands (rename, describe, move to workspace)
 
-4. **UI Layout**
-   - Left sidebar (200px, placeholder for future features)
+4. **Workspaces**
+   - Organize terminals into named workspaces
+   - Move terminals between workspaces via IPC
+   - Workspace switching in sidebar
+
+5. **UI Layout**
+   - Left sidebar with workspace/terminal tree
    - Status bar with terminal minimap and position indicator
    - Blue border highlight on focused terminal
+   - Command palette (⌘P) for quick actions
+
+6. **Lua Configuration**
+   - `init.lua` for customizing sidebar, fonts, etc.
+   - Runtime configuration loading
+
+7. **Shell/Editor Integration**
+   - Fish shell plugin (`plugins/fish/`)
+   - Neovim plugin (`plugins/neovim/`)
+   - Environment variables for IPC (MANSE_SOCKET, MANSE_TERMINAL)
 
 ### Architecture
 
 ```
-manse-rs/
+manse/
 ├── src/
-│   ├── main.rs   # CLI entry point (clap + eframe)
-│   ├── app.rs    # egui App, WindowManager logic, terminal panels
-│   └── ipc.rs    # Unix socket server/client, protocol types
-└── egui_term/    # Local fork of egui_term (focus fix applied)
+│   ├── main.rs       # CLI entry point (clap + eframe)
+│   ├── app.rs        # egui App, WindowManager logic, terminal panels
+│   ├── command.rs    # Command definitions for palette
+│   ├── config.rs     # Lua configuration loader
+│   ├── icons.rs      # Icon loading (e.g., neovim icon)
+│   ├── ipc.rs        # Unix socket server/client, protocol types
+│   ├── terminal.rs   # Terminal panel abstraction
+│   ├── workspace.rs  # Workspace data structure
+│   └── ui/
+│       ├── mod.rs
+│       ├── command_palette.rs  # ⌘P command palette
+│       ├── sidebar.rs          # Workspace/terminal sidebar
+│       └── status_bar.rs       # Terminal position indicators
+├── egui_term/        # Local fork of egui_term (focus fix applied)
+├── patches/          # Patched dependencies
+│   ├── alacritty_terminal/
+│   └── vte/
+├── plugins/          # Shell/editor integrations
+│   ├── fish/         # Fish shell integration
+│   └── neovim/       # Neovim plugin
+└── init.lua          # User configuration (Lua)
 ```
 
 ### Key Structures
@@ -58,8 +92,13 @@ manse-rs/
 
 **IpcServer/IpcClient** (`src/ipc.rs`)
 - JSON protocol over Unix domain socket
-- Non-blocking polling in main loop
+- Multithreaded listener with channel-based message passing
 - Request/Response types with serde
+- Commands: Ping, TermRename, TermDesc, TermToWorkspace
+
+**Workspace** (`src/workspace.rs`)
+- Named container for grouping terminals
+- UUID-based terminal membership
 
 ### Controls
 
@@ -80,23 +119,54 @@ All keybindings use ⌘ (Cmd) to avoid conflicts with terminal applications.
 ### CLI Usage
 
 ```bash
-# Run without IPC
+# Run the terminal manager (socket defaults to /tmp/manse.sock)
 cargo run -- run
-
-# Run with IPC socket
 cargo run -- run --socket /tmp/manse.sock
 
 # Ping a running instance
 cargo run -- ping --socket /tmp/manse.sock
+
+# Rename a terminal (uses $MANSE_SOCKET and $MANSE_TERMINAL env vars)
+cargo run -- term-rename "My Terminal"
+cargo run -- term-rename -t <uuid> "My Terminal"
+
+# Set terminal description
+cargo run -- term-desc "Working on feature X"
+
+# Move terminal to workspace
+cargo run -- term-to-workspace -w "project-a"
+```
+
+### Environment Variables
+
+Terminals spawned by Manse have these environment variables set:
+- `MANSE_SOCKET` - Path to the IPC socket
+- `MANSE_TERMINAL` - UUID of the terminal
+
+This enables shell scripts and editor plugins to communicate with Manse.
+
+### Configuration
+
+Manse loads configuration from `init.lua` in the project root:
+
+```lua
+-- init.lua example
+config.sidebar_width = 300
+config.workspace_font_size = 13
+config.terminal_title_font_size = 12
+config.description_font_size = 10
+config.terminal_font_size = 14
 ```
 
 ### Dependencies
 
 - `eframe` / `egui` - GUI framework
 - `egui_term` - Terminal widget (local fork with focus fix)
-- `alacritty_terminal` - Terminal emulation backend (via egui_term)
+- `alacritty_terminal` - Terminal emulation backend (patched in `patches/`)
+- `vte` - VT parser (patched in `patches/`)
 - `clap` - CLI argument parsing
 - `serde` / `serde_json` - IPC protocol serialization
+- `mlua` - Lua configuration scripting
 
 ### Building
 
@@ -118,11 +188,33 @@ if !layout.has_focus() || !layout.contains_pointer() {
 if !layout.has_focus() {
 ```
 
+### IPC Protocol
+
+The socket interface supports these commands:
+
+```json
+// Ping for liveness
+{"cmd": "ping"}
+{"ok": true}
+
+// Rename a terminal
+{"cmd": "term_rename", "terminal": "<uuid>", "title": "My Terminal"}
+{"ok": true}
+
+// Set terminal description
+{"cmd": "term_desc", "terminal": "<uuid>", "description": "Working on X"}
+{"ok": true}
+
+// Move terminal to workspace
+{"cmd": "term_to_workspace", "terminal": "<uuid>", "workspace_name": "project"}
+{"ok": true}
+```
+
 ## Future Directions
 
 ### Planned: Extended IPC
 
-The socket interface is designed to support additional commands:
+Additional commands being considered:
 
 ```json
 // Get application state

@@ -13,6 +13,8 @@ albeit the kind of slop that was 100% written by a human. Aside from lacking
 basic features that most terminal emulators have, it's also pretty hard on
 battery usage at the moment. Mostly trying it out to see how it feels.
 
+Also looking for a better name, send me your suggestions.
+
 # Rambling
 
 The basic theory of manse:
@@ -76,7 +78,6 @@ worktrees of the same project)
 Information about the active manse workspace and instance are available in the
 program environment; combined with the above this also allows programs to supply
 some rich information about what's going on in them.
-
 
 # Icons
 
