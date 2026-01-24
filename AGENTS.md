@@ -85,10 +85,11 @@ manse/
 - Processes IPC commands
 - Renders UI (sidebar, status bar, terminal area)
 
-**TerminalPanel** (`src/app.rs`)
+**TerminalPanel** (`src/terminal.rs`)
 - Wraps egui_term::TerminalBackend
 - Width ratio (fraction of viewport)
 - Unique ID for event routing
+- Two separate descriptions: `description` (in-app via ⌘D) and `cli_description` (via CLI/IPC)
 
 **IpcServer/IpcClient** (`src/ipc.rs`)
 - JSON protocol over Unix domain socket
@@ -114,6 +115,7 @@ All keybindings use ⌘ (Cmd) to avoid conflicts with terminal applications.
 | `⌘⇧]` | Swap with next terminal |
 | `⌘-` | Shrink focused terminal |
 | `⌘=` | Grow focused terminal |
+| `⌘D` | Set terminal description (in-app) |
 | `⌘P` | Toggle command palette |
 
 ### CLI Usage
@@ -130,7 +132,7 @@ cargo run -- ping --socket /tmp/manse.sock
 cargo run -- term-rename "My Terminal"
 cargo run -- term-rename -t <uuid> "My Terminal"
 
-# Set terminal description
+# Set terminal CLI description (separate from in-app description set via ⌘D)
 cargo run -- term-desc "Working on feature X"
 
 # Move terminal to workspace
@@ -205,7 +207,7 @@ The socket interface supports these commands:
 {"cmd": "term_rename", "terminal": "<uuid>", "title": "My Terminal"}
 {"ok": true}
 
-// Set terminal description
+// Set terminal CLI description (separate from in-app description)
 {"cmd": "term_desc", "terminal": "<uuid>", "description": "Working on X"}
 {"ok": true}
 

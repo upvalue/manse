@@ -134,12 +134,36 @@ pub fn render(
                                     });
                                 }
 
-                                // Description (if set)
-                                if !panel.description.is_empty() {
+                                // CLI description (if set via manse term-desc)
+                                if let Some(ref cli_desc) = panel.cli_description {
                                     let desc_color = if is_focused {
                                         egui::Color32::from_rgb(80, 120, 200)
                                     } else {
                                         egui::Color32::from_rgb(120, 120, 120)
+                                    };
+                                    let desc_response = ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(cli_desc)
+                                                .size(config.description_font_size)
+                                                .color(desc_color),
+                                        )
+                                        .truncate()
+                                        .sense(egui::Sense::click()),
+                                    );
+                                    if desc_response.clicked() {
+                                        action = Some(SidebarAction::FocusTerminal {
+                                            workspace: ws_idx,
+                                            terminal: term_idx,
+                                        });
+                                    }
+                                }
+
+                                // In-app description (if set via Cmd+D)
+                                if !panel.description.is_empty() {
+                                    let desc_color = if is_focused {
+                                        egui::Color32::from_rgb(100, 160, 100)
+                                    } else {
+                                        egui::Color32::from_rgb(100, 120, 100)
                                     };
                                     let desc_response = ui.add(
                                         egui::Label::new(

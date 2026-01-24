@@ -11,7 +11,7 @@ use std::path::Path;
 
 /// Version for detecting incompatible state format changes.
 /// Increment this when the serialization format changes.
-pub const STATE_VERSION: u32 = 1;
+pub const STATE_VERSION: u32 = 2;
 
 /// Error type for persistence operations.
 #[derive(Debug)]
@@ -149,8 +149,10 @@ pub struct PersistedTerminal {
     pub width_ratio: f32,
     /// Custom title set via IPC.
     pub custom_title: Option<String>,
-    /// Description text.
+    /// Description text (set via in-app dialog).
     pub description: String,
+    /// CLI description (set via manse term-desc).
+    pub cli_description: Option<String>,
     /// Emoji icon.
     pub emoji: Option<String>,
     /// Current working directory (from OSC 7).

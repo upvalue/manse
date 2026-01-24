@@ -18,8 +18,10 @@ pub struct TerminalPanel {
     pub title: String,
     /// Custom title set via IPC (overrides natural title when Some)
     pub custom_title: Option<String>,
-    /// Optional description set via IPC
+    /// Description set via in-app dialog (Cmd+D)
     pub description: String,
+    /// Description set via CLI/IPC (manse term-desc)
+    pub cli_description: Option<String>,
     /// Optional emoji icon set via IPC
     pub emoji: Option<String>,
     /// Current working directory (from OSC 7 escape sequences)
@@ -73,6 +75,7 @@ impl TerminalPanel {
             title: String::from("Terminal"),
             custom_title: None,
             description: String::new(),
+            cli_description: None,
             emoji: None,
             current_working_directory: working_directory,
             notified: false,
@@ -116,6 +119,7 @@ impl TerminalPanel {
             title: String::from("Terminal"),
             custom_title: persisted.custom_title.clone(),
             description: persisted.description.clone(),
+            cli_description: persisted.cli_description.clone(),
             emoji: persisted.emoji.clone(),
             current_working_directory: persisted.cwd.clone(),
             notified: false,
@@ -133,6 +137,7 @@ impl TerminalPanel {
             width_ratio: self.width_ratio,
             custom_title: self.custom_title.clone(),
             description: self.description.clone(),
+            cli_description: self.cli_description.clone(),
             emoji: self.emoji.clone(),
             cwd: self.current_working_directory.clone(),
         }

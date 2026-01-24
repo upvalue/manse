@@ -15,7 +15,7 @@ function __manse_hook --on-variable PWD
     # Parse workspace name and invoke manse
     set -l workspace_name (command jq -r '.workspaceName // empty' .manse.json 2>/dev/null)
     test -n "$workspace_name"
-    and command $MANSE_CMD term-to-workspace --workspace-name "$workspace_name"
+    and command $MANSE_CMD term-to-workspace --socket $MANSE_SOCKET --workspace-name "$workspace_name"
 end
 
 # Run once on shell startup

@@ -1,17 +1,19 @@
 # manse
 
-An experiment in project and application aware scrolling terminal manager.
-Make as many terminals as you want and scroll between them. Terminals are
+An experimental project and application aware scrolling terminal manager. Make
+as many terminals as you want and scroll between them. Terminals are
 automatically grouped into workspaces, based on the project you're in, and
 plugins for apps/shells can update the UI to reflect what's going on in a given
 terminal so you have better visibility.
+
+![Manse demo](demo.gif)
 
 # Caution
 
 This has been mostly vibe coded. Aside from lacking basic features that most
 terminal emulators have, it's also pretty hard on battery usage at the moment.
-Mostly trying to see how it feels and prioritizing differentiating features
-over stability.
+Mostly trying to see how it feels and prioritizing features over stability or
+usability at the moment.
 
 Also looking for a better name, send me your suggestions.
 
@@ -27,11 +29,13 @@ And run using cargo run
 
 > cargo run
 
-There's no installation at the moment, but I recommend symlinking `manse` to point at the built Rust binary:
+There's no installation at the moment, but I recommend symlinking `manse` to
+point at the built Rust binary:
 
 > ln -sf /absolute-path-to-checkout-dir/target/debug/manse /usr/local/bin/manse
 
-Because plugins will assume a binary called `manse` exists and can be used to interact with the running application.
+Because plugins will assume a binary called `manse` exists and can be used to
+interact with the running application.
 
 ## Plugins
 
@@ -83,9 +87,8 @@ Things get shuffled around and terminals get noisy.
 In manse, this splits up based on project. So you end up with two different
 workspaces, one for project1 and one for project2. 
 
-The "tabs" in this case can be renamed on the fly by you or running
-applications. So you don't necessarily take the application title (though you
-can).
+The "tabs" in this case can be described on the fly by you or running
+applications. 
 
 But instead of having a horizontal bar of tabs that are named after whatever
 the running application is, you have more of a tree:

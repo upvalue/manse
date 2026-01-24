@@ -889,7 +889,12 @@ impl App {
                         .find(|p| p.id == *terminal);
 
                     if let Some(panel) = panel {
-                        panel.description = description.clone();
+                        // CLI descriptions go to cli_description, separate from in-app description
+                        panel.cli_description = if description.is_empty() {
+                            None
+                        } else {
+                            Some(description.clone())
+                        };
                         Response::ok()
                     } else {
                         Response::error(format!("Terminal not found: {}", terminal))

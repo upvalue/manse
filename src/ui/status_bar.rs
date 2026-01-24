@@ -60,14 +60,27 @@ pub fn render(ui: &mut egui::Ui, workspace: &Workspace, focused_panel: Option<&T
                 .truncate(),
             );
 
-            // Description (if set)
+            // CLI description (if set via manse term-desc)
+            if let Some(ref cli_desc) = panel.cli_description {
+                ui.add_space(4.0);
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(cli_desc)
+                            .size(11.0)
+                            .color(egui::Color32::from_rgb(120, 120, 120)),
+                    )
+                    .truncate(),
+                );
+            }
+
+            // In-app description (if set via Cmd+D)
             if !panel.description.is_empty() {
                 ui.add_space(4.0);
                 ui.add(
                     egui::Label::new(
                         egui::RichText::new(&panel.description)
                             .size(11.0)
-                            .color(egui::Color32::from_rgb(120, 120, 120)),
+                            .color(egui::Color32::from_rgb(100, 140, 100)),
                     )
                     .truncate(),
                 );
