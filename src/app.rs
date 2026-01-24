@@ -27,6 +27,12 @@ struct PerfStats {
     scroll_animation_frames: u64,
     /// Frames while minimized
     minimized_frames: u64,
+    /// Frames with pointer (mouse) activity
+    pointer_frames: u64,
+    /// Frames with keyboard activity
+    keyboard_frames: u64,
+    /// Frames where window has focus
+    focused_frames: u64,
 }
 
 /// Font data
@@ -89,6 +95,19 @@ pub const WIDTH_RATIOS: [f32; 4] = [0.333, 0.5, 0.667, 1.0];
 /// Scroll animation easing factor
 const SCROLL_EASING: f32 = 0.15;
 
+/// Active dialog type
+#[derive(Default)]
+enum ActiveDialog {
+    #[default]
+    None,
+    /// Confirm close terminal dialog
+    ConfirmClose,
+    /// Set description input dialog
+    SetDescription {
+        input: String,
+    },
+}
+
 /// The scrolling window manager
 pub struct App {
     /// Application configuration
@@ -115,6 +134,8 @@ pub struct App {
     follow_mode: bool,
     /// Performance tracking stats
     perf_stats: PerfStats,
+    /// Active dialog (confirmation, input, etc.)
+    active_dialog: ActiveDialog,
 }
 
 impl App {
@@ -148,6 +169,7 @@ impl App {
             command_palette_open: false,
             follow_mode: false,
             perf_stats: PerfStats::default(),
+            active_dialog: ActiveDialog::None,
         };
 
         // Create initial terminal
@@ -170,16 +192,23 @@ impl App {
         if elapsed >= Duration::from_secs_f32(interval) {
             let secs = elapsed.as_secs_f64();
             let fps = self.perf_stats.frame_count as f64 / secs;
+            let s = &self.perf_stats;
+
+            // Count unexplained frames (frames not accounted for by known causes)
+            let explained = s.pty_events + s.scroll_animation_frames + s.minimized_frames + s.pointer_frames + s.keyboard_frames;
+            let mystery = s.frame_count.saturating_sub(explained);
 
             log::info!(
-                "[perf] {:.1}s: frames={} ({:.1} fps), pty_events={}, ipc={}, scroll_frames={}, minimized={}",
+                "[perf] {:.1}s: frames={} ({:.1} fps) | pty={} scroll={} pointer={} kbd={} focused={} | mystery={}",
                 secs,
-                self.perf_stats.frame_count,
+                s.frame_count,
                 fps,
-                self.perf_stats.pty_events,
-                self.perf_stats.ipc_requests,
-                self.perf_stats.scroll_animation_frames,
-                self.perf_stats.minimized_frames,
+                s.pty_events,
+                s.scroll_animation_frames,
+                s.pointer_frames,
+                s.keyboard_frames,
+                s.focused_frames,
+                mystery,
             );
 
             // Reset stats
@@ -486,7 +515,10 @@ impl App {
                 self.create_terminal(ctx);
                 self.active_workspace_mut().focused_index = new_index;
             }
-            Command::CloseTerminal => self.close_focused(),
+            Command::CloseTerminal => {
+                // Show confirmation dialog instead of closing immediately
+                self.active_dialog = ActiveDialog::ConfirmClose;
+            }
             Command::FocusPrevious => self.focus_prev(),
             Command::FocusNext => self.focus_next(),
             Command::SwapWithPrevious => self.swap_with_prev(),
@@ -494,6 +526,13 @@ impl App {
             Command::ShrinkTerminal => self.shrink_focused(),
             Command::GrowTerminal => self.grow_focused(),
             Command::FollowMode => self.follow_mode = true,
+            Command::SetDescription => {
+                // Get current description as starting value
+                let current = self.focused_panel()
+                    .map(|p| p.description.clone())
+                    .unwrap_or_default();
+                self.active_dialog = ActiveDialog::SetDescription { input: current };
+            }
         }
     }
 
@@ -515,6 +554,11 @@ impl App {
     }
 
     fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
+        // Don't process shortcuts when a dialog is active (dialog handles its own input)
+        if !matches!(self.active_dialog, ActiveDialog::None) {
+            return;
+        }
+
         // Escape closes command palette or follow mode
         if self.command_palette_open {
             if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -617,6 +661,11 @@ impl App {
             // Cmd+J: Follow mode (jump to terminal by letter)
             if i.consume_key(egui::Modifiers::COMMAND, egui::Key::J) {
                 self.execute_command(Command::FollowMode, ctx);
+            }
+
+            // Cmd+D: Set terminal description
+            if i.consume_key(egui::Modifiers::COMMAND, egui::Key::D) {
+                self.execute_command(Command::SetDescription, ctx);
             }
         });
     }
@@ -752,6 +801,19 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Track frame for perf stats
         self.perf_stats.frame_count += 1;
+
+        // Track input activity for perf debugging
+        ctx.input(|i| {
+            if i.focused {
+                self.perf_stats.focused_frames += 1;
+            }
+            if i.pointer.is_moving() || i.pointer.any_down() || i.pointer.any_released() {
+                self.perf_stats.pointer_frames += 1;
+            }
+            if i.keys_down.len() > 0 || i.events.iter().any(|e| matches!(e, egui::Event::Key { .. } | egui::Event::Text(_))) {
+                self.perf_stats.keyboard_frames += 1;
+            }
+        });
 
         // Skip rendering when minimized (window definitely not visible)
         let is_minimized = ctx.input(|i| i.viewport().minimized.unwrap_or(false));
@@ -899,19 +961,22 @@ impl eframe::App for App {
                         let inner_width = term_width - border_width * 2.0;
                         let inner_height = padded_height - border_width * 2.0;
 
+                        // Check if any dialog is open (terminals shouldn't steal focus)
+                        let dialog_open = !matches!(self.active_dialog, ActiveDialog::None);
+
                         frame.show(&mut child_ui, |ui| {
                             // Render terminal with slightly smaller size to fit border
                             let font = TerminalFont::new(FontSettings {
                                 font_type: egui::FontId::monospace(terminal_font_size),
                             });
                             let term_view = TerminalView::new(ui, &mut panel.backend)
-                                .set_focus(is_focused)
+                                .set_focus(is_focused && !dialog_open)
                                 .set_font(font)
                                 .set_size(egui::vec2(inner_width, inner_height));
                             let response = ui.add(term_view);
 
-                            // Always keep the focused terminal with keyboard focus
-                            if is_focused {
+                            // Only request focus if no dialog is open
+                            if is_focused && !dialog_open {
                                 response.request_focus();
                             }
                         });
@@ -936,8 +1001,259 @@ impl eframe::App for App {
             }
         }
 
+        // Dialog overlays
+        self.render_dialogs(ctx);
+
         // Log perf stats periodically if enabled
         self.maybe_log_perf_stats();
+    }
+}
+
+impl App {
+    fn render_dialogs(&mut self, ctx: &egui::Context) {
+        match &self.active_dialog {
+            ActiveDialog::None => {}
+            ActiveDialog::ConfirmClose => {
+                self.render_confirm_close_dialog(ctx);
+            }
+            ActiveDialog::SetDescription { .. } => {
+                self.render_set_description_dialog(ctx);
+            }
+        }
+    }
+
+    fn render_confirm_close_dialog(&mut self, ctx: &egui::Context) {
+        #[allow(deprecated)]
+        let screen_rect = ctx.screen_rect();
+
+        // Semi-transparent background
+        egui::Area::new(egui::Id::new("dialog_bg"))
+            .fixed_pos(screen_rect.min)
+            .show(ctx, |ui| {
+                let response = ui.allocate_response(screen_rect.size(), egui::Sense::click());
+                ui.painter().rect_filled(
+                    screen_rect,
+                    0.0,
+                    egui::Color32::from_black_alpha(128),
+                );
+                if response.clicked() {
+                    self.active_dialog = ActiveDialog::None;
+                }
+            });
+
+        // Dialog window
+        let dialog_width = 300.0;
+        let dialog_x = (screen_rect.width() - dialog_width) / 2.0;
+        let dialog_y = screen_rect.height() * 0.3;
+
+        let mut should_close = false;
+        let mut should_confirm = false;
+
+        egui::Area::new(egui::Id::new("confirm_close_dialog"))
+            .fixed_pos(egui::pos2(dialog_x, dialog_y))
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style())
+                    .fill(egui::Color32::from_rgb(40, 40, 40))
+                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 80, 80)))
+                    .corner_radius(8.0)
+                    .show(ui, |ui| {
+                        ui.set_width(dialog_width);
+                        ui.add_space(16.0);
+
+                        ui.vertical_centered(|ui| {
+                            ui.label(
+                                egui::RichText::new("Close Terminal?")
+                                    .size(16.0)
+                                    .color(egui::Color32::WHITE),
+                            );
+                        });
+
+                        ui.add_space(8.0);
+
+                        ui.vertical_centered(|ui| {
+                            ui.label(
+                                egui::RichText::new("This will terminate the running process.")
+                                    .size(12.0)
+                                    .color(egui::Color32::from_rgb(160, 160, 160)),
+                            );
+                        });
+
+                        ui.add_space(16.0);
+
+                        ui.horizontal(|ui| {
+                            ui.add_space((dialog_width - 160.0) / 2.0);
+
+                            if ui.button("Cancel").clicked() {
+                                should_close = true;
+                            }
+
+                            ui.add_space(8.0);
+
+                            let close_btn = egui::Button::new(
+                                egui::RichText::new("Close")
+                                    .color(egui::Color32::WHITE),
+                            )
+                            .fill(egui::Color32::from_rgb(180, 60, 60));
+
+                            if ui.add(close_btn).clicked() {
+                                should_confirm = true;
+                            }
+                        });
+
+                        ui.add_space(16.0);
+                    });
+            });
+
+        // Handle escape key
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            should_close = true;
+        }
+
+        // Handle enter key for confirm
+        if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+            should_confirm = true;
+        }
+
+        if should_close {
+            self.active_dialog = ActiveDialog::None;
+        } else if should_confirm {
+            self.active_dialog = ActiveDialog::None;
+            self.close_focused();
+        }
+    }
+
+    fn render_set_description_dialog(&mut self, ctx: &egui::Context) {
+        #[allow(deprecated)]
+        let screen_rect = ctx.screen_rect();
+
+        // Semi-transparent background
+        egui::Area::new(egui::Id::new("dialog_bg_desc"))
+            .fixed_pos(screen_rect.min)
+            .show(ctx, |ui| {
+                let response = ui.allocate_response(screen_rect.size(), egui::Sense::click());
+                ui.painter().rect_filled(
+                    screen_rect,
+                    0.0,
+                    egui::Color32::from_black_alpha(128),
+                );
+                if response.clicked() {
+                    self.active_dialog = ActiveDialog::None;
+                }
+            });
+
+        // Dialog window
+        let dialog_width = 400.0;
+        let dialog_x = (screen_rect.width() - dialog_width) / 2.0;
+        let dialog_y = screen_rect.height() * 0.3;
+
+        let mut should_close = false;
+        let mut should_confirm = false;
+        let mut new_input = None;
+
+        // Extract current input value
+        let current_input = match &self.active_dialog {
+            ActiveDialog::SetDescription { input } => input.clone(),
+            _ => String::new(),
+        };
+
+        egui::Area::new(egui::Id::new("set_description_dialog"))
+            .fixed_pos(egui::pos2(dialog_x, dialog_y))
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style())
+                    .fill(egui::Color32::from_rgb(40, 40, 40))
+                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 80, 80)))
+                    .corner_radius(8.0)
+                    .show(ui, |ui| {
+                        ui.set_width(dialog_width);
+                        ui.add_space(16.0);
+
+                        ui.vertical_centered(|ui| {
+                            ui.label(
+                                egui::RichText::new("Set Terminal Description")
+                                    .size(16.0)
+                                    .color(egui::Color32::WHITE),
+                            );
+                        });
+
+                        ui.add_space(12.0);
+
+                        ui.horizontal(|ui| {
+                            ui.add_space(16.0);
+                            let mut input = current_input.clone();
+                            let text_edit = egui::TextEdit::singleline(&mut input)
+                                .desired_width(dialog_width - 40.0)
+                                .hint_text("Enter description...");
+                            let response = ui.add(text_edit);
+
+                            // Always request focus for the text input
+                            response.request_focus();
+
+                            if input != current_input {
+                                new_input = Some(input.clone());
+                            }
+
+                            // Enter to confirm (check globally since we have focus)
+                            if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                should_confirm = true;
+                                new_input = Some(input);
+                            }
+                            ui.add_space(16.0);
+                        });
+
+                        ui.add_space(16.0);
+
+                        ui.horizontal(|ui| {
+                            ui.add_space((dialog_width - 160.0) / 2.0);
+
+                            if ui.button("Cancel").clicked() {
+                                should_close = true;
+                            }
+
+                            ui.add_space(8.0);
+
+                            let save_btn = egui::Button::new(
+                                egui::RichText::new("Save")
+                                    .color(egui::Color32::WHITE),
+                            )
+                            .fill(egui::Color32::from_rgb(60, 120, 180));
+
+                            if ui.add(save_btn).clicked() {
+                                should_confirm = true;
+                            }
+                        });
+
+                        ui.add_space(16.0);
+                    });
+            });
+
+        // Handle escape key
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            should_close = true;
+        }
+
+        // Update input if changed
+        if let Some(input) = new_input {
+            if !should_confirm && !should_close {
+                self.active_dialog = ActiveDialog::SetDescription { input };
+            }
+        }
+
+        if should_close {
+            self.active_dialog = ActiveDialog::None;
+        } else if should_confirm {
+            // Get the final input value
+            let description = match &self.active_dialog {
+                ActiveDialog::SetDescription { input } => input.clone(),
+                _ => String::new(),
+            };
+
+            // Update the focused panel's description
+            if let Some(panel) = self.focused_panel_mut() {
+                panel.description = description;
+            }
+
+            self.active_dialog = ActiveDialog::None;
+        }
     }
 }
 

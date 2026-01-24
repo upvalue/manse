@@ -5,7 +5,7 @@ print('hi!')
 
 -- Performance logging: set to > 0 to log frame/event stats every N seconds
 -- Run with RUST_LOG=info to see output
--- config.perf_log_interval = 5
+config.perf_log_interval = 5
 
 --[[
 config.sidebar_width = 250

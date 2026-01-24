@@ -10,6 +10,7 @@ pub enum Command {
     ShrinkTerminal,
     GrowTerminal,
     FollowMode,
+    SetDescription,
 }
 
 impl Command {
@@ -25,6 +26,7 @@ impl Command {
             Command::ShrinkTerminal,
             Command::GrowTerminal,
             Command::FollowMode,
+            Command::SetDescription,
         ]
     }
 
@@ -39,6 +41,7 @@ impl Command {
             Command::ShrinkTerminal => "Shrink Terminal",
             Command::GrowTerminal => "Grow Terminal",
             Command::FollowMode => "Follow Mode",
+            Command::SetDescription => "Set Terminal Description",
         }
     }
 
@@ -53,6 +56,7 @@ impl Command {
             Command::ShrinkTerminal => "⌘-",
             Command::GrowTerminal => "⌘=",
             Command::FollowMode => "⌘J",
+            Command::SetDescription => "⌘D",
         }
     }
 }

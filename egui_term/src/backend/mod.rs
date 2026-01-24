@@ -198,8 +198,11 @@ impl TerminalBackend {
                         .unwrap_or_else(|_| {
                             panic!("pty_event_subscription_{}: sending PtyEvent is failed", id)
                         });
-                    // Throttle to ~60fps to reduce battery usage
-                    app_context.request_repaint_after(Duration::from_millis(16));
+                    // Only request repaint for visual events (Wakeup = grid changed)
+                    // Non-visual events (Title, WorkingDirectory, etc.) don't need immediate repaint
+                    if matches!(event, Event::Wakeup) {
+                        app_context.request_repaint();
+                    }
                     match event {
                         Event::Exit => break,
                         Event::PtyWrite(pty) => pty_notifier.notify(pty.into_bytes()),

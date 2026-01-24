@@ -66,26 +66,31 @@ pub fn render(ctx: &egui::Context) -> CommandPaletteResult {
 
                     // Command list
                     for cmd in Command::all() {
-                        let response = ui.add(
-                            egui::Button::new(
-                                egui::RichText::new(format!("{}  {}", cmd.name(), cmd.keybinding()))
-                                    .size(13.0),
-                            )
-                            .fill(egui::Color32::TRANSPARENT)
-                            .frame(false)
-                            .min_size(egui::vec2(palette_width - 16.0, 28.0)),
+                        let (rect, response) = ui.allocate_exact_size(
+                            egui::vec2(palette_width - 16.0, 28.0),
+                            egui::Sense::click(),
+                        );
+
+                        // Paint hover background first (before text)
+                        if response.hovered() {
+                            ui.painter().rect_filled(
+                                rect,
+                                4.0,
+                                egui::Color32::from_rgb(60, 60, 60),
+                            );
+                        }
+
+                        // Then paint the text on top
+                        ui.painter().text(
+                            rect.left_center() + egui::vec2(8.0, 0.0),
+                            egui::Align2::LEFT_CENTER,
+                            format!("{}  {}", cmd.name(), cmd.keybinding()),
+                            egui::FontId::proportional(13.0),
+                            egui::Color32::from_rgb(220, 220, 220),
                         );
 
                         if response.clicked() {
                             result.selected_command = Some(*cmd);
-                        }
-
-                        if response.hovered() {
-                            ui.painter().rect_filled(
-                                response.rect,
-                                4.0,
-                                egui::Color32::from_rgb(60, 60, 60),
-                            );
                         }
                     }
 
