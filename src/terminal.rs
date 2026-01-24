@@ -3,14 +3,13 @@ use egui_term::{BackendSettings, PtyEvent, TerminalBackend};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
-use uuid::Uuid;
 
 // howdypal!
 
 /// A terminal panel in the window manager
 pub struct TerminalPanel {
-    /// Unique identifier for external reference
-    pub uuid: Uuid,
+    /// Unique identifier for external reference (nanoid with "term-" prefix)
+    pub id: String,
     pub backend: TerminalBackend,
     pub width_ratio: f32,
     /// Terminal title (from shell escape sequences)
@@ -35,7 +34,7 @@ impl TerminalPanel {
         socket_path: Option<&PathBuf>,
         working_directory: Option<PathBuf>,
     ) -> Self {
-        let uuid = Uuid::new_v4();
+        let term_id = crate::id::new_terminal_id();
 
         let shell = std::env::var("SHELL").unwrap_or_else(|_| {
             if cfg!(windows) {
@@ -47,7 +46,7 @@ impl TerminalPanel {
 
         // Set environment variables for the terminal
         let mut env = HashMap::new();
-        env.insert("MANSE_TERMINAL".to_string(), uuid.to_string());
+        env.insert("MANSE_TERMINAL".to_string(), term_id.clone());
         if let Some(path) = socket_path {
             env.insert("MANSE_SOCKET".to_string(), path.display().to_string());
         }
@@ -66,7 +65,7 @@ impl TerminalPanel {
             .expect("Failed to create terminal backend");
 
         Self {
-            uuid,
+            id: term_id,
             backend,
             width_ratio: 1.0,
             title: String::from("Terminal"),

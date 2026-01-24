@@ -12,11 +12,11 @@ use std::thread;
 pub enum Request {
     /// Check if server is alive
     Ping,
-    /// Rename a terminal by UUID
+    /// Rename a terminal by ID
     TermRename { terminal: String, title: String },
-    /// Set terminal description by UUID
+    /// Set terminal description by ID
     TermDesc { terminal: String, description: String },
-    /// Set terminal emoji icon by UUID
+    /// Set terminal emoji icon by ID
     TermEmoji { terminal: String, emoji: String },
     /// Move a terminal to a workspace (creates workspace if needed)
     TermToWorkspace { terminal: String, workspace_name: String },

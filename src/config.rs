@@ -30,6 +30,8 @@ impl Default for SidebarConfig {
 pub struct Config {
     pub sidebar: SidebarConfig,
     pub terminal_font_size: f32,
+    /// Performance logging interval in seconds (0 = disabled)
+    pub perf_log_interval: f32,
 }
 
 impl Default for Config {
@@ -37,6 +39,7 @@ impl Default for Config {
         Self {
             sidebar: SidebarConfig::default(),
             terminal_font_size: 14.0,
+            perf_log_interval: 0.0,
         }
     }
 }
@@ -99,6 +102,7 @@ fn load_config_from_file(path: &PathBuf) -> LuaResult<Config> {
             terminal_title_font_size = {terminal_title_font_size},
             description_font_size = {description_font_size},
             terminal_font_size = {terminal_font_size},
+            perf_log_interval = {perf_log_interval},
         }}
         "#,
         sidebar_width = sidebar_defaults.width,
@@ -106,6 +110,7 @@ fn load_config_from_file(path: &PathBuf) -> LuaResult<Config> {
         terminal_title_font_size = sidebar_defaults.terminal_title_font_size,
         description_font_size = sidebar_defaults.description_font_size,
         terminal_font_size = config_defaults.terminal_font_size,
+        perf_log_interval = config_defaults.perf_log_interval,
     ))
     .exec()?;
 
@@ -126,6 +131,7 @@ fn load_config_from_file(path: &PathBuf) -> LuaResult<Config> {
             description_font_size: config_table.get("description_font_size")?,
         },
         terminal_font_size: config_table.get("terminal_font_size")?,
+        perf_log_interval: config_table.get("perf_log_interval")?,
     };
 
     Ok(config)

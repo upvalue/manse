@@ -2,6 +2,7 @@ mod app;
 mod command;
 mod config;
 mod icons;
+mod id;
 mod ipc;
 mod terminal;
 mod ui;
@@ -37,7 +38,7 @@ enum Commands {
         /// Path to IPC socket (defaults to $MANSE_SOCKET or /tmp/manse.sock)
         #[arg(short, long, env = "MANSE_SOCKET", default_value = "/tmp/manse.sock")]
         socket: PathBuf,
-        /// Terminal UUID (defaults to $MANSE_TERMINAL)
+        /// Terminal ID (defaults to $MANSE_TERMINAL)
         #[arg(short, long, env = "MANSE_TERMINAL")]
         terminal: String,
         /// New title for the terminal
@@ -48,7 +49,7 @@ enum Commands {
         /// Path to IPC socket (defaults to $MANSE_SOCKET or /tmp/manse.sock)
         #[arg(short, long, env = "MANSE_SOCKET", default_value = "/tmp/manse.sock")]
         socket: PathBuf,
-        /// Terminal UUID (defaults to $MANSE_TERMINAL)
+        /// Terminal ID (defaults to $MANSE_TERMINAL)
         #[arg(short, long, env = "MANSE_TERMINAL")]
         terminal: String,
         /// Description for the terminal
@@ -59,7 +60,7 @@ enum Commands {
         /// Path to IPC socket (defaults to $MANSE_SOCKET or /tmp/manse.sock)
         #[arg(short, long, env = "MANSE_SOCKET", default_value = "/tmp/manse.sock")]
         socket: PathBuf,
-        /// Terminal UUID (defaults to $MANSE_TERMINAL)
+        /// Terminal ID (defaults to $MANSE_TERMINAL)
         #[arg(short, long, env = "MANSE_TERMINAL")]
         terminal: String,
         /// Emoji icon for the terminal (empty string to clear)
@@ -70,7 +71,7 @@ enum Commands {
         /// Path to IPC socket (defaults to $MANSE_SOCKET or /tmp/manse.sock)
         #[arg(short, long, env = "MANSE_SOCKET", default_value = "/tmp/manse.sock")]
         socket: PathBuf,
-        /// Terminal UUID (defaults to $MANSE_TERMINAL)
+        /// Terminal ID (defaults to $MANSE_TERMINAL)
         #[arg(short, long, env = "MANSE_TERMINAL")]
         terminal: String,
         /// Name of the workspace to move to
@@ -82,7 +83,7 @@ enum Commands {
         /// Path to IPC socket (defaults to $MANSE_SOCKET or /tmp/manse.sock)
         #[arg(short, long, env = "MANSE_SOCKET", default_value = "/tmp/manse.sock")]
         socket: PathBuf,
-        /// Terminal UUID (defaults to $MANSE_TERMINAL)
+        /// Terminal ID (defaults to $MANSE_TERMINAL)
         #[arg(short, long, env = "MANSE_TERMINAL")]
         terminal: String,
     },
