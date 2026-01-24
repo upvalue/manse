@@ -76,10 +76,19 @@ pub fn render(
                             Cow::Borrowed(panel.display_title())
                         };
 
-                        // Render emoji and title horizontally
+                        // Render emoji, title, and notification indicator horizontally
                         let response = ui.horizontal(|ui| {
-                            // Show emoji if set, otherwise empty space for alignment
-                            let emoji_text = emoji.unwrap_or("  ");
+                            // Show notification indicator if notified
+                            if panel.notified {
+                                ui.label(
+                                    egui::RichText::new("●")
+                                        .size(config.terminal_title_font_size)
+                                        .color(egui::Color32::from_rgb(255, 100, 100)),
+                                );
+                            }
+
+                            // Show emoji if set, otherwise default terminal icon
+                            let emoji_text = emoji.unwrap_or("🖥️");
                             ui.label(
                                 egui::RichText::new(emoji_text)
                                     .size(config.terminal_title_font_size),

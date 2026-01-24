@@ -23,6 +23,8 @@ pub struct TerminalPanel {
     pub emoji: Option<String>,
     /// Current working directory (from OSC 7 escape sequences)
     pub current_working_directory: Option<PathBuf>,
+    /// Whether this terminal has a pending notification
+    pub notified: bool,
 }
 
 impl TerminalPanel {
@@ -72,6 +74,7 @@ impl TerminalPanel {
             description: String::new(),
             emoji: None,
             current_working_directory: working_directory,
+            notified: false,
         }
     }
 

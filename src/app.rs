@@ -628,6 +628,22 @@ impl App {
                         Err(_) => Response::error(format!("Invalid UUID: {}", terminal)),
                     }
                 }
+                Request::TermNotify { ref terminal } => {
+                    match Uuid::parse_str(&terminal) {
+                        Ok(target_uuid) => {
+                            let panel = self.panels.values_mut()
+                                .find(|p| p.uuid == target_uuid);
+
+                            if let Some(panel) = panel {
+                                panel.notified = true;
+                                Response::ok()
+                            } else {
+                                Response::error(format!("Terminal not found: {}", terminal))
+                            }
+                        }
+                        Err(_) => Response::error(format!("Invalid UUID: {}", terminal)),
+                    }
+                }
                 Request::TermToWorkspace { ref terminal, ref workspace_name } => {
                     match Uuid::parse_str(&terminal) {
                         Ok(target_uuid) => {
@@ -730,6 +746,11 @@ impl eframe::App for App {
 
         // Handle keyboard shortcuts
         self.handle_keyboard_shortcuts(ctx);
+
+        // Clear notification on focused terminal
+        if let Some(panel) = self.focused_panel_mut() {
+            panel.notified = false;
+        }
 
         // Update scroll animation
         self.update_scroll();

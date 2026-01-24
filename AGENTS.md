@@ -135,6 +135,10 @@ cargo run -- term-desc "Working on feature X"
 
 # Move terminal to workspace
 cargo run -- term-to-workspace -w "project-a"
+
+# Notify a terminal (shows indicator until focused)
+cargo run -- term-notify
+cargo run -- term-notify -t <uuid>
 ```
 
 ### Environment Variables
@@ -207,6 +211,10 @@ The socket interface supports these commands:
 
 // Move terminal to workspace
 {"cmd": "term_to_workspace", "terminal": "<uuid>", "workspace_name": "project"}
+{"ok": true}
+
+// Notify a terminal (shows indicator until focused)
+{"cmd": "term_notify", "terminal": "<uuid>"}
 {"ok": true}
 ```
 

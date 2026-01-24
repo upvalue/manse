@@ -20,6 +20,8 @@ pub enum Request {
     TermEmoji { terminal: String, emoji: String },
     /// Move a terminal to a workspace (creates workspace if needed)
     TermToWorkspace { terminal: String, workspace_name: String },
+    /// Set notification on a terminal (cleared when focused)
+    TermNotify { terminal: String },
 }
 
 /// Response sent from server to client

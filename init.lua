@@ -14,7 +14,7 @@ config.terminal_font_size = 14
 
 -- presentation settings
 config.sidebar_width = 300
-config.workspace_font_size = 20
-config.terminal_title_font_size = 20
-config.description_font_size = 20
-config.terminal_font_size = 24
+config.workspace_font_size = 16
+config.terminal_title_font_size = 16
+config.description_font_size = 16
+config.terminal_font_size = 18

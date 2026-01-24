@@ -77,6 +77,15 @@ enum Commands {
         #[arg(short, long)]
         workspace_name: String,
     },
+    /// Notify a terminal (shows indicator until focused)
+    TermNotify {
+        /// Path to IPC socket (defaults to $MANSE_SOCKET or /tmp/manse.sock)
+        #[arg(short, long, env = "MANSE_SOCKET", default_value = "/tmp/manse.sock")]
+        socket: PathBuf,
+        /// Terminal UUID (defaults to $MANSE_TERMINAL)
+        #[arg(short, long, env = "MANSE_TERMINAL")]
+        terminal: String,
+    },
 }
 
 fn main() -> eframe::Result<()> {
@@ -212,6 +221,26 @@ fn main() -> eframe::Result<()> {
             } else {
                 eprintln!(
                     "Failed to move terminal: {}",
+                    response.error.unwrap_or_else(|| "Unknown error".into())
+                );
+            }
+            Ok(())
+        }
+        Commands::TermNotify { socket, terminal } => {
+            let mut client = ipc::IpcClient::connect(&socket)
+                .map_err(|e| eprintln!("Failed to connect: {}", e))
+                .unwrap();
+
+            let response = client
+                .request(&ipc::Request::TermNotify { terminal })
+                .map_err(|e| eprintln!("Request failed: {}", e))
+                .unwrap();
+
+            if response.ok {
+                println!("Terminal notified");
+            } else {
+                eprintln!(
+                    "Failed to notify: {}",
                     response.error.unwrap_or_else(|| "Unknown error".into())
                 );
             }
