@@ -29,7 +29,7 @@ And run using cargo run
 
 There's no installation at the moment, but I recommend symlinking `manse` to point at the built Rust binary:
 
-ln -sf /absolute-path-to-checkout-dir/target/debug/manse /usr/local/bin/manse
+> ln -sf /absolute-path-to-checkout-dir/target/debug/manse /usr/local/bin/manse
 
 Because plugins will assume a binary called `manse` exists and can be used to interact with the running application.
 

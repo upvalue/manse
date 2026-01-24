@@ -1,13 +1,13 @@
 # manse.fish
 
-MANSE_CMD=manse
+# Only set up hook if running inside manse
+set -q MANSE_SOCKET
+or return
+
+set -g MANSE_CMD manse
 
 # Hook for manse workspace switching on directory change
 function __manse_hook --on-variable PWD
-    # Early exit if MANSE_SOCKET not set
-    set -q MANSE_SOCKET
-    or return
-
     # Early exit if no .manse.json in current directory
     test -f .manse.json
     or return
