@@ -12,6 +12,8 @@ use std::thread;
 pub enum Request {
     /// Check if server is alive
     Ping,
+    /// Trigger a restart (exec with state preservation)
+    Restart,
     /// Rename a terminal by ID
     TermRename { terminal: String, title: String },
     /// Set terminal description by ID

@@ -24,7 +24,6 @@ use std::io::Result;
 use std::ops::{Index, RangeInclusive};
 use std::sync::mpsc::Sender;
 use std::sync::{mpsc, Arc};
-use std::time::Duration;
 
 pub type TerminalMode = TermMode;
 pub type PtyEvent = Event;
@@ -137,6 +136,7 @@ impl From<TerminalSize> for WindowSize {
 pub struct TerminalBackend {
     id: u64,
     pty_id: u32,
+    pty_fd: i32,
     url_regex: RegexSearch,
     term: Arc<FairMutex<Term<EventProxy>>>,
     size: TerminalSize,
@@ -171,6 +171,10 @@ impl TerminalBackend {
                 "Failed to get child process ID",
             ))?
             .into();
+        #[cfg(not(windows))]
+        let pty_fd = pty.raw_fd();
+        #[cfg(windows)]
+        let pty_fd = -1; // Not supported on Windows
         let (event_sender, event_receiver) = mpsc::channel();
         let event_proxy = EventProxy(event_sender);
         let mut term = Term::new(config, &terminal_size, event_proxy.clone());
@@ -214,6 +218,74 @@ impl TerminalBackend {
         Ok(Self {
             id,
             pty_id,
+            pty_fd,
+            url_regex,
+            term: term.clone(),
+            size: terminal_size,
+            notifier,
+            last_content: initial_content,
+        })
+    }
+
+    /// Restore a terminal backend from an existing PTY file descriptor.
+    /// Used for session restore after exec.
+    ///
+    /// # Safety
+    /// The fd must be a valid PTY master file descriptor.
+    /// The child_pid must be a valid running process.
+    #[cfg(not(windows))]
+    pub unsafe fn from_raw_fd(
+        id: u64,
+        pty_fd: i32,
+        pty_id: u32,
+        app_context: egui::Context,
+        pty_event_proxy_sender: Sender<(u64, PtyEvent)>,
+    ) -> Result<Self> {
+        let pty = unsafe { tty::from_raw_fd(pty_fd, pty_id)? };
+        let config = term::Config::default();
+        let terminal_size = TerminalSize::default();
+        let (event_sender, event_receiver) = mpsc::channel();
+        let event_proxy = EventProxy(event_sender);
+        let mut term = Term::new(config, &terminal_size, event_proxy.clone());
+        let initial_content = RenderableContent {
+            grid: term.grid().clone(),
+            selectable_range: None,
+            terminal_mode: *term.mode(),
+            terminal_size,
+            cursor: term.grid_mut().cursor_cell().clone(),
+            hovered_hyperlink: None,
+        };
+        let term = Arc::new(FairMutex::new(term));
+        let pty_event_loop =
+            EventLoop::new(term.clone(), event_proxy, pty, false, false)?;
+        let notifier = Notifier(pty_event_loop.channel());
+        let pty_notifier = Notifier(pty_event_loop.channel());
+        let url_regex = RegexSearch::new(r#"(ipfs:|ipns:|magnet:|mailto:|gemini://|gopher://|https://|http://|news:|file://|git://|ssh:|ftp://)[^\u{0000}-\u{001F}\u{007F}-\u{009F}<>"\s{-}\^⟨⟩`]+"#).unwrap();
+        let _pty_event_loop_thread = pty_event_loop.spawn();
+        let _pty_event_subscription = std::thread::Builder::new()
+            .name(format!("pty_event_subscription_{}", id))
+            .spawn(move || loop {
+                if let Ok(event) = event_receiver.recv() {
+                    pty_event_proxy_sender
+                        .send((id, event.clone()))
+                        .unwrap_or_else(|_| {
+                            panic!("pty_event_subscription_{}: sending PtyEvent is failed", id)
+                        });
+                    if matches!(event, Event::Wakeup) {
+                        app_context.request_repaint();
+                    }
+                    match event {
+                        Event::Exit => break,
+                        Event::PtyWrite(pty) => pty_notifier.notify(pty.into_bytes()),
+                        _ => {}
+                    }
+                }
+            })?;
+
+        Ok(Self {
+            id,
+            pty_id,
+            pty_fd,
             url_regex,
             term: term.clone(),
             size: terminal_size,
@@ -306,6 +378,13 @@ impl TerminalBackend {
 
     pub fn pty_id(&self) -> u32 {
         self.pty_id
+    }
+
+    /// Get the PTY master file descriptor.
+    /// Used for session persistence.
+    #[cfg(not(windows))]
+    pub fn pty_fd(&self) -> i32 {
+        self.pty_fd
     }
 
     fn process_link_action(

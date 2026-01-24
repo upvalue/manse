@@ -1970,6 +1970,7 @@ dependencies = [
  "egui_term",
  "env_logger",
  "image",
+ "libc",
  "log",
  "mlua",
  "nanoid",

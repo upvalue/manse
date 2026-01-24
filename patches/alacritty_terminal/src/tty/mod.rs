@@ -10,7 +10,10 @@ use polling::{Event, PollMode, Poller};
 #[cfg(not(windows))]
 mod unix;
 #[cfg(not(windows))]
-pub use self::unix::*;
+pub use self::unix::{
+    from_fd, from_raw_fd, new, Pty, ToWinsize,
+    PTY_CHILD_EVENT_TOKEN, PTY_READ_WRITE_TOKEN,
+};
 
 #[cfg(windows)]
 pub mod windows;

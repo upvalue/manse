@@ -28,10 +28,10 @@ use crate::event::{OnResize, WindowSize};
 use crate::tty::{ChildEvent, EventedPty, EventedReadWrite, Options};
 
 // Interest in PTY read/writes.
-pub(crate) const PTY_READ_WRITE_TOKEN: usize = 0;
+pub const PTY_READ_WRITE_TOKEN: usize = 0;
 
 // Interest in new child events.
-pub(crate) const PTY_CHILD_EVENT_TOKEN: usize = 1;
+pub const PTY_CHILD_EVENT_TOKEN: usize = 1;
 
 macro_rules! die {
     ($($arg:tt)*) => {{
@@ -101,19 +101,51 @@ fn get_pw_entry(buf: &mut [i8; 1024]) -> Result<Passwd<'_>> {
 }
 
 pub struct Pty {
-    child: Child,
+    child: Option<Child>,
+    child_pid: u32,
     file: File,
-    signals: UnixStream,
-    sig_id: SigId,
+    signals: Option<UnixStream>,
+    sig_id: Option<SigId>,
 }
 
 impl Pty {
     pub fn child(&self) -> &Child {
-        &self.child
+        self.child.as_ref().expect("Pty has no child (restored from fd)")
     }
 
     pub fn file(&self) -> &File {
         &self.file
+    }
+
+    /// Get the raw file descriptor for the PTY master.
+    pub fn raw_fd(&self) -> i32 {
+        self.file.as_raw_fd()
+    }
+
+    /// Get the child process ID.
+    pub fn child_pid(&self) -> u32 {
+        self.child_pid
+    }
+
+    /// Consume the Pty and return raw parts for handoff to a new process.
+    /// This prevents the Drop impl from killing the child process.
+    /// Returns (raw_fd, child_pid).
+    pub fn into_raw_parts(mut self) -> (i32, u32) {
+        let fd = self.file.as_raw_fd();
+        let pid = self.child_pid;
+
+        // Take ownership of child to prevent Drop from killing it
+        self.child = None;
+        // Clear signal handler registration
+        if let Some(sig_id) = self.sig_id.take() {
+            unregister_signal(sig_id);
+        }
+        self.signals = None;
+
+        // Leak self to prevent Drop from running
+        std::mem::forget(self);
+
+        (fd, pid)
     }
 }
 
@@ -197,6 +229,41 @@ pub fn new(config: &Options, window_size: WindowSize, window_id: u64) -> Result<
     let pty = openpty(None, Some(&window_size.to_winsize()))?;
     let (master, slave) = (pty.controller, pty.user);
     from_fd(config, window_id, master, slave)
+}
+
+/// Restore a PTY from an existing file descriptor.
+/// Used for session restore after exec.
+/// The child process must already be running.
+///
+/// # Safety
+/// The fd must be a valid PTY master file descriptor.
+/// The child_pid must be a valid running process.
+pub unsafe fn from_raw_fd(fd: i32, child_pid: u32) -> Result<Pty> {
+    use std::os::unix::io::FromRawFd;
+
+    // Wrap the raw fd in a File
+    let file = unsafe { File::from_raw_fd(fd) };
+
+    // Set up SIGCHLD handling for the restored process
+    let (signals, sig_id) = {
+        let (sender, recv) = UnixStream::pair()?;
+        let sig_id = signal_pipe::register(sigconsts::SIGCHLD, sender)?;
+        recv.set_nonblocking(true)?;
+        (recv, sig_id)
+    };
+
+    // Ensure the fd is non-blocking
+    unsafe {
+        set_nonblocking(fd);
+    }
+
+    Ok(Pty {
+        child: None,  // No Child handle when restoring
+        child_pid,
+        file,
+        signals: Some(signals),
+        sig_id: Some(sig_id),
+    })
 }
 
 /// Create a new TTY from a PTY's file descriptors.
@@ -284,13 +351,20 @@ pub fn from_fd(config: &Options, window_id: u64, master: OwnedFd, slave: OwnedFd
 
     match builder.spawn() {
         Ok(child) => {
+            let child_pid = child.id();
             unsafe {
                 // Maybe this should be done outside of this function so nonblocking
                 // isn't forced upon consumers. Although maybe it should be?
                 set_nonblocking(master_fd);
             }
 
-            Ok(Pty { child, file: File::from(master), signals, sig_id })
+            Ok(Pty {
+                child: Some(child),
+                child_pid,
+                file: File::from(master),
+                signals: Some(signals),
+                sig_id: Some(sig_id),
+            })
         },
         Err(err) => Err(Error::new(
             err.kind(),
@@ -305,15 +379,18 @@ pub fn from_fd(config: &Options, window_id: u64, master: OwnedFd, slave: OwnedFd
 
 impl Drop for Pty {
     fn drop(&mut self) {
-        // Make sure the PTY is terminated properly.
-        unsafe {
-            libc::kill(self.child.id() as i32, libc::SIGHUP);
+        // If we have a child, terminate it properly
+        if let Some(ref mut child) = self.child {
+            unsafe {
+                libc::kill(child.id() as i32, libc::SIGHUP);
+            }
+            let _ = child.wait();
         }
 
-        // Clear signal-hook handler.
-        unregister_signal(self.sig_id);
-
-        let _ = self.child.wait();
+        // Clear signal-hook handler if we have one
+        if let Some(sig_id) = self.sig_id.take() {
+            unregister_signal(sig_id);
+        }
     }
 }
 
@@ -333,13 +410,16 @@ impl EventedReadWrite for Pty {
             poll.add_with_mode(&self.file, interest, poll_opts)?;
         }
 
-        unsafe {
-            poll.add_with_mode(
-                &self.signals,
-                Event::readable(PTY_CHILD_EVENT_TOKEN),
-                PollMode::Level,
-            )
+        if let Some(ref signals) = self.signals {
+            unsafe {
+                poll.add_with_mode(
+                    signals,
+                    Event::readable(PTY_CHILD_EVENT_TOKEN),
+                    PollMode::Level,
+                )?;
+            }
         }
+        Ok(())
     }
 
     #[inline]
@@ -352,17 +432,23 @@ impl EventedReadWrite for Pty {
         interest.key = PTY_READ_WRITE_TOKEN;
         poll.modify_with_mode(&self.file, interest, poll_opts)?;
 
-        poll.modify_with_mode(
-            &self.signals,
-            Event::readable(PTY_CHILD_EVENT_TOKEN),
-            PollMode::Level,
-        )
+        if let Some(ref signals) = self.signals {
+            poll.modify_with_mode(
+                signals,
+                Event::readable(PTY_CHILD_EVENT_TOKEN),
+                PollMode::Level,
+            )?;
+        }
+        Ok(())
     }
 
     #[inline]
     fn deregister(&mut self, poll: &Arc<Poller>) -> Result<()> {
         poll.delete(&self.file)?;
-        poll.delete(&self.signals)
+        if let Some(ref signals) = self.signals {
+            poll.delete(signals)?;
+        }
+        Ok(())
     }
 
     #[inline]
@@ -380,22 +466,42 @@ impl EventedPty for Pty {
     #[inline]
     fn next_child_event(&mut self) -> Option<ChildEvent> {
         // See if there has been a SIGCHLD.
+        let signals = self.signals.as_mut()?;
         let mut buf = [0u8; 1];
-        if let Err(err) = self.signals.read(&mut buf) {
+        if let Err(err) = signals.read(&mut buf) {
             if err.kind() != ErrorKind::WouldBlock {
                 error!("Error reading from signal pipe: {err}");
             }
             return None;
         }
 
-        // Match on the child process.
-        match self.child.try_wait() {
-            Err(err) => {
-                error!("Error checking child process termination: {err}");
+        // If we have a Child handle, use it
+        if let Some(ref mut child) = self.child {
+            match child.try_wait() {
+                Err(err) => {
+                    error!("Error checking child process termination: {err}");
+                    None
+                },
+                Ok(None) => None,
+                Ok(exit_status) => Some(ChildEvent::Exited(exit_status.and_then(|s| s.code()))),
+            }
+        } else {
+            // For restored PTYs without a Child handle, check via waitpid
+            let mut status: i32 = 0;
+            let result = unsafe {
+                libc::waitpid(self.child_pid as i32, &mut status, libc::WNOHANG)
+            };
+            if result == self.child_pid as i32 {
+                if libc::WIFEXITED(status) {
+                    Some(ChildEvent::Exited(Some(libc::WEXITSTATUS(status))))
+                } else if libc::WIFSIGNALED(status) {
+                    Some(ChildEvent::Exited(None))
+                } else {
+                    None
+                }
+            } else {
                 None
-            },
-            Ok(None) => None,
-            Ok(exit_status) => Some(ChildEvent::Exited(exit_status.and_then(|s| s.code()))),
+            }
         }
     }
 }

@@ -4,6 +4,7 @@ mod config;
 mod icons;
 mod id;
 mod ipc;
+mod persist;
 mod terminal;
 mod ui;
 mod workspace;
@@ -23,6 +24,21 @@ struct Cli {
 enum Commands {
     /// Run the terminal window manager
     Run {
+        /// Path to IPC socket
+        #[arg(short, long, default_value = "/tmp/manse.sock")]
+        socket: PathBuf,
+    },
+    /// Resume from persisted state (internal, called after exec)
+    Resume {
+        /// Path to state file
+        #[arg(long)]
+        state_file: PathBuf,
+        /// Path to IPC socket
+        #[arg(short, long, default_value = "/tmp/manse.sock")]
+        socket: PathBuf,
+    },
+    /// Trigger restart of running instance
+    Restart {
         /// Path to IPC socket
         #[arg(short, long, default_value = "/tmp/manse.sock")]
         socket: PathBuf,
@@ -89,6 +105,23 @@ enum Commands {
     },
 }
 
+/// Run a fresh instance (no restore).
+fn run_fresh(socket: PathBuf, config: config::Config) -> eframe::Result<()> {
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1200.0, 800.0])
+            .with_min_inner_size([400.0, 300.0])
+            .with_maximized(true),
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "manse",
+        options,
+        Box::new(move |cc| Ok(Box::new(app::App::new(cc, Some(socket), config)))),
+    )
+}
+
 fn main() -> eframe::Result<()> {
     env_logger::init();
 
@@ -111,6 +144,77 @@ fn main() -> eframe::Result<()> {
                 options,
                 Box::new(move |cc| Ok(Box::new(app::App::new(cc, Some(socket), config)))),
             )
+        }
+        Commands::Resume { state_file, socket } => {
+            let config = config::load_config();
+
+            // Load persisted state
+            let state = match persist::PersistedState::load(&state_file) {
+                Ok(state) => state,
+                Err(e) => {
+                    log::warn!("Failed to load persisted state: {}. Starting fresh.", e);
+                    // Clean up the state file
+                    let _ = std::fs::remove_file(&state_file);
+                    // Fall back to fresh start
+                    return run_fresh(socket, config);
+                }
+            };
+
+            // Validate file descriptors
+            let errors = state.validate_fds();
+            if !errors.is_empty() {
+                for (ws_idx, term_idx, err) in &errors {
+                    log::warn!(
+                        "Terminal {} in workspace {} failed validation: {}",
+                        term_idx, ws_idx, err
+                    );
+                }
+            }
+
+            let options = eframe::NativeOptions {
+                viewport: egui::ViewportBuilder::default()
+                    .with_inner_size([1200.0, 800.0])
+                    .with_min_inner_size([400.0, 300.0])
+                    .with_maximized(true),
+                ..Default::default()
+            };
+
+            // Clean up state file after loading
+            let _ = std::fs::remove_file(&state_file);
+
+            eframe::run_native(
+                "manse",
+                options,
+                Box::new(move |cc| {
+                    match app::App::from_persisted(cc, state, socket.clone(), config.clone()) {
+                        Ok(app) => Ok(Box::new(app)),
+                        Err(e) => {
+                            log::warn!("Failed to restore from persisted state: {}. Starting fresh.", e);
+                            Ok(Box::new(app::App::new(cc, Some(socket), config)))
+                        }
+                    }
+                }),
+            )
+        }
+        Commands::Restart { socket } => {
+            let mut client = ipc::IpcClient::connect(&socket)
+                .map_err(|e| eprintln!("Failed to connect: {}", e))
+                .unwrap();
+
+            let response = client
+                .request(&ipc::Request::Restart)
+                .map_err(|e| eprintln!("Request failed: {}", e))
+                .unwrap();
+
+            if response.ok {
+                println!("Restart initiated");
+            } else {
+                eprintln!(
+                    "Failed to restart: {}",
+                    response.error.unwrap_or_else(|| "Unknown error".into())
+                );
+            }
+            Ok(())
         }
         Commands::Ping { socket } => {
             let mut client = ipc::IpcClient::connect(&socket)

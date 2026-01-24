@@ -1,6 +1,7 @@
 use crate::command::Command;
 use crate::config::Config;
 use crate::ipc::{start_ipc_server, IpcHandle, Request, Response};
+use crate::persist::{self, PersistedState, PersistedTerminal, PersistedWorkspace};
 use crate::terminal::TerminalPanel;
 use crate::ui::{command_palette, sidebar, status_bar};
 use crate::workspace::Workspace;
@@ -176,6 +177,184 @@ impl App {
         app.create_terminal(&cc.egui_ctx);
 
         app
+    }
+
+    /// Restore application state from persisted data.
+    #[cfg(unix)]
+    pub fn from_persisted(
+        cc: &eframe::CreationContext<'_>,
+        state: PersistedState,
+        socket_path: PathBuf,
+        config: Config,
+    ) -> Result<Self, String> {
+        setup_fonts(&cc.egui_ctx);
+
+        let (event_tx, event_rx) = mpsc::channel();
+
+        // Initialize IPC server
+        let ipc_handle = match start_ipc_server(&socket_path, cc.egui_ctx.clone()) {
+            Ok(handle) => Some(handle),
+            Err(e) => {
+                log::error!("Failed to start IPC server: {}", e);
+                None
+            }
+        };
+
+        let mut panels = HashMap::new();
+        let mut workspaces = Vec::new();
+
+        // Restore all terminals from all workspaces
+        for persisted_ws in &state.workspaces {
+            let mut ws = Workspace::new(&persisted_ws.name);
+            ws.focused_index = persisted_ws.focused_index;
+
+            for persisted_term in &persisted_ws.terminals {
+                // Try to restore this terminal
+                match unsafe {
+                    TerminalPanel::from_persisted(
+                        persisted_term.internal_id,
+                        persisted_term,
+                        &cc.egui_ctx,
+                        event_tx.clone(),
+                    )
+                } {
+                    Ok(panel) => {
+                        panels.insert(persisted_term.internal_id, panel);
+                        ws.panel_order.push(persisted_term.internal_id);
+
+                        // Force redraw by toggling PTY size
+                        if let Err(e) = persist::force_redraw(
+                            persisted_term.pty_fd,
+                            persisted_term.pty_pid,
+                        ) {
+                            log::warn!(
+                                "Failed to force redraw for terminal {}: {}",
+                                persisted_term.external_id,
+                                e
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "Failed to restore terminal {}: {}",
+                            persisted_term.external_id,
+                            e
+                        );
+                    }
+                }
+            }
+
+            // Fix up focused_index if needed
+            if ws.focused_index >= ws.panel_order.len() {
+                ws.focused_index = ws.panel_order.len().saturating_sub(1);
+            }
+
+            workspaces.push(ws);
+        }
+
+        // If we failed to restore anything, return an error
+        if panels.is_empty() {
+            return Err("No terminals could be restored".to_string());
+        }
+
+        // Remove any empty workspaces (except keep at least one)
+        workspaces.retain(|ws| !ws.panel_order.is_empty());
+        if workspaces.is_empty() {
+            workspaces.push(Workspace::new("default"));
+        }
+
+        let active_workspace = state.active_workspace.min(workspaces.len().saturating_sub(1));
+
+        Ok(Self {
+            config,
+            panels,
+            workspaces,
+            active_workspace,
+            next_id: state.next_id,
+            event_rx,
+            event_tx,
+            ipc_handle,
+            socket_path: Some(socket_path),
+            command_palette_open: false,
+            follow_mode: false,
+            perf_stats: PerfStats::default(),
+            active_dialog: ActiveDialog::None,
+        })
+    }
+
+    /// Convert current state to persisted form.
+    #[cfg(unix)]
+    pub fn to_persisted_state(&self) -> PersistedState {
+        let workspaces = self
+            .workspaces
+            .iter()
+            .map(|ws| {
+                let terminals: Vec<PersistedTerminal> = ws
+                    .panel_order
+                    .iter()
+                    .filter_map(|&id| {
+                        self.panels.get(&id).map(|panel| panel.to_persisted(id))
+                    })
+                    .collect();
+
+                PersistedWorkspace {
+                    name: ws.name.clone(),
+                    panel_order: ws.panel_order.clone(),
+                    focused_index: ws.focused_index,
+                    terminals,
+                }
+            })
+            .collect();
+
+        PersistedState {
+            version: persist::STATE_VERSION,
+            workspaces,
+            active_workspace: self.active_workspace,
+            next_id: self.next_id,
+        }
+    }
+
+    /// Trigger a restart by saving state and exec'ing a new process.
+    #[cfg(unix)]
+    pub fn trigger_restart(&self) -> Result<(), String> {
+        use std::os::unix::process::CommandExt;
+
+        // 1. Serialize state to temp file
+        let state = self.to_persisted_state();
+        let state_path = std::path::Path::new("/tmp/manse-restart-state.json");
+        state
+            .save(state_path)
+            .map_err(|e| format!("Failed to save state: {}", e))?;
+
+        // 2. Clear CLOEXEC on all PTY fds
+        for panel in self.panels.values() {
+            let fd = panel.pty_fd();
+            if let Err(e) = persist::clear_cloexec(fd) {
+                log::warn!("Failed to clear CLOEXEC on fd {}: {}", fd, e);
+            }
+        }
+
+        // 3. Build exec args
+        let exe = std::env::current_exe()
+            .map_err(|e| format!("Failed to get current exe: {}", e))?;
+
+        let socket_path = self
+            .socket_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| "/tmp/manse.sock".to_string());
+
+        // 4. exec (does not return on success)
+        let err = std::process::Command::new(&exe)
+            .arg("resume")
+            .arg("--state-file")
+            .arg(state_path)
+            .arg("-s")
+            .arg(&socket_path)
+            .exec();
+
+        // If we get here, exec failed
+        Err(format!("exec failed: {}", err))
     }
 
     /// Log performance stats if enabled and interval has elapsed
@@ -670,7 +849,7 @@ impl App {
         });
     }
 
-    fn process_ipc(&mut self) {
+    fn process_ipc(&mut self, ctx: &egui::Context) {
         let Some(handle) = &self.ipc_handle else {
             return;
         };
@@ -679,6 +858,21 @@ impl App {
             self.perf_stats.ipc_requests += 1;
             let response = match pending.request {
                 Request::Ping => Response::ok(),
+                Request::Restart => {
+                    // Respond OK first, then trigger restart
+                    pending.respond(Response::ok());
+
+                    #[cfg(unix)]
+                    if let Err(e) = self.trigger_restart() {
+                        log::error!("Restart failed: {}", e);
+                        // If restart failed, close the window so we don't leave a broken state
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+
+                    // If exec succeeded, we won't reach here
+                    // If exec failed, we already responded and logged error
+                    continue;
+                }
                 Request::TermRename { ref terminal, ref title } => {
                     let panel = self.panels.values_mut()
                         .find(|p| p.id == *terminal);
@@ -821,7 +1015,7 @@ impl eframe::App for App {
             self.perf_stats.minimized_frames += 1;
             // Still process events so terminals don't buffer forever
             self.process_events(ctx);
-            self.process_ipc();
+            self.process_ipc(ctx);
             // Use slow refresh rate when minimized to save battery
             ctx.request_repaint_after(std::time::Duration::from_millis(500));
             self.maybe_log_perf_stats();
@@ -840,7 +1034,7 @@ impl eframe::App for App {
         self.process_events(ctx);
 
         // Process IPC commands (background thread triggers repaint when requests arrive)
-        self.process_ipc();
+        self.process_ipc(ctx);
 
         // Handle keyboard shortcuts
         self.handle_keyboard_shortcuts(ctx);

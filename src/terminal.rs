@@ -1,6 +1,8 @@
+use crate::persist::PersistedTerminal;
 use eframe::egui;
 use egui_term::{BackendSettings, PtyEvent, TerminalBackend};
 use std::collections::HashMap;
+use std::io;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 
@@ -84,5 +86,66 @@ impl TerminalPanel {
 
     pub fn pixel_width(&self, viewport_width: f32) -> f32 {
         viewport_width * self.width_ratio
+    }
+
+    /// Restore a terminal panel from persisted state.
+    ///
+    /// # Safety
+    /// The PTY fd must be valid and the process must be running.
+    #[cfg(unix)]
+    pub unsafe fn from_persisted(
+        internal_id: u64,
+        persisted: &PersistedTerminal,
+        ctx: &egui::Context,
+        event_tx: Sender<(u64, PtyEvent)>,
+    ) -> io::Result<Self> {
+        let backend = unsafe {
+            TerminalBackend::from_raw_fd(
+                internal_id,
+                persisted.pty_fd,
+                persisted.pty_pid,
+                ctx.clone(),
+                event_tx,
+            )?
+        };
+
+        Ok(Self {
+            id: persisted.external_id.clone(),
+            backend,
+            width_ratio: persisted.width_ratio,
+            title: String::from("Terminal"),
+            custom_title: persisted.custom_title.clone(),
+            description: persisted.description.clone(),
+            emoji: persisted.emoji.clone(),
+            current_working_directory: persisted.cwd.clone(),
+            notified: false,
+        })
+    }
+
+    /// Convert to persisted form for serialization.
+    #[cfg(unix)]
+    pub fn to_persisted(&self, internal_id: u64) -> PersistedTerminal {
+        PersistedTerminal {
+            internal_id,
+            external_id: self.id.clone(),
+            pty_fd: self.backend.pty_fd(),
+            pty_pid: self.backend.pty_id(),
+            width_ratio: self.width_ratio,
+            custom_title: self.custom_title.clone(),
+            description: self.description.clone(),
+            emoji: self.emoji.clone(),
+            cwd: self.current_working_directory.clone(),
+        }
+    }
+
+    /// Get the PTY file descriptor.
+    #[cfg(unix)]
+    pub fn pty_fd(&self) -> i32 {
+        self.backend.pty_fd()
+    }
+
+    /// Get the PTY child process ID.
+    pub fn pty_pid(&self) -> u32 {
+        self.backend.pty_id()
     }
 }
