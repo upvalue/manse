@@ -1,12 +1,11 @@
 mod app;
-mod command;
 mod config;
-mod icons;
-mod id;
-mod ipc;
+mod fonts;
+mod ipc_protocol;
 mod persist;
 mod terminal;
 mod ui;
+mod util;
 mod workspace;
 
 use clap::{Parser, Subcommand};
@@ -71,16 +70,16 @@ enum Commands {
         /// Description for the terminal
         description: String,
     },
-    /// Set terminal emoji icon
-    TermEmoji {
+    /// Set terminal icon (Nerd Font codepoint)
+    TermIcon {
         /// Path to IPC socket (defaults to $MANSE_SOCKET or /tmp/manse.sock)
         #[arg(short, long, env = "MANSE_SOCKET", default_value = "/tmp/manse.sock")]
         socket: PathBuf,
         /// Terminal ID (defaults to $MANSE_TERMINAL)
         #[arg(short, long, env = "MANSE_TERMINAL")]
         terminal: String,
-        /// Emoji icon for the terminal (empty string to clear)
-        emoji: String,
+        /// Icon for the terminal (Nerd Font codepoint, empty string to clear)
+        icon: String,
     },
     /// Move a terminal to a workspace (creates workspace if needed)
     TermToWorkspace {
@@ -102,6 +101,11 @@ enum Commands {
         /// Terminal ID (defaults to $MANSE_TERMINAL)
         #[arg(short, long, env = "MANSE_TERMINAL")]
         terminal: String,
+    },
+    /// Initialize a .manse.json project file in the current directory
+    Init {
+        /// Project name (defaults to current directory name)
+        name: Option<String>,
     },
 }
 
@@ -197,12 +201,12 @@ fn main() -> eframe::Result<()> {
             )
         }
         Commands::Restart { socket } => {
-            let mut client = ipc::IpcClient::connect(&socket)
+            let mut client = ipc_protocol::IpcClient::connect(&socket)
                 .map_err(|e| eprintln!("Failed to connect: {}", e))
                 .unwrap();
 
             let response = client
-                .request(&ipc::Request::Restart)
+                .request(&ipc_protocol::Request::Restart)
                 .map_err(|e| eprintln!("Request failed: {}", e))
                 .unwrap();
 
@@ -217,7 +221,7 @@ fn main() -> eframe::Result<()> {
             Ok(())
         }
         Commands::Ping { socket } => {
-            let mut client = ipc::IpcClient::connect(&socket)
+            let mut client = ipc_protocol::IpcClient::connect(&socket)
                 .map_err(|e| eprintln!("Failed to connect: {}", e))
                 .unwrap();
 
@@ -237,12 +241,12 @@ fn main() -> eframe::Result<()> {
             terminal,
             title,
         } => {
-            let mut client = ipc::IpcClient::connect(&socket)
+            let mut client = ipc_protocol::IpcClient::connect(&socket)
                 .map_err(|e| eprintln!("Failed to connect: {}", e))
                 .unwrap();
 
             let response = client
-                .request(&ipc::Request::TermRename { terminal, title })
+                .request(&ipc_protocol::Request::TermRename { terminal, title })
                 .map_err(|e| eprintln!("Request failed: {}", e))
                 .unwrap();
 
@@ -261,12 +265,12 @@ fn main() -> eframe::Result<()> {
             terminal,
             description,
         } => {
-            let mut client = ipc::IpcClient::connect(&socket)
+            let mut client = ipc_protocol::IpcClient::connect(&socket)
                 .map_err(|e| eprintln!("Failed to connect: {}", e))
                 .unwrap();
 
             let response = client
-                .request(&ipc::Request::TermDesc { terminal, description })
+                .request(&ipc_protocol::Request::TermDesc { terminal, description })
                 .map_err(|e| eprintln!("Request failed: {}", e))
                 .unwrap();
 
@@ -280,25 +284,25 @@ fn main() -> eframe::Result<()> {
             }
             Ok(())
         }
-        Commands::TermEmoji {
+        Commands::TermIcon {
             socket,
             terminal,
-            emoji,
+            icon,
         } => {
-            let mut client = ipc::IpcClient::connect(&socket)
+            let mut client = ipc_protocol::IpcClient::connect(&socket)
                 .map_err(|e| eprintln!("Failed to connect: {}", e))
                 .unwrap();
 
             let response = client
-                .request(&ipc::Request::TermEmoji { terminal, emoji })
+                .request(&ipc_protocol::Request::TermIcon { terminal, icon })
                 .map_err(|e| eprintln!("Request failed: {}", e))
                 .unwrap();
 
             if response.ok {
-                println!("Terminal emoji set");
+                println!("Terminal icon set");
             } else {
                 eprintln!(
-                    "Failed to set emoji: {}",
+                    "Failed to set icon: {}",
                     response.error.unwrap_or_else(|| "Unknown error".into())
                 );
             }
@@ -309,12 +313,12 @@ fn main() -> eframe::Result<()> {
             terminal,
             workspace_name,
         } => {
-            let mut client = ipc::IpcClient::connect(&socket)
+            let mut client = ipc_protocol::IpcClient::connect(&socket)
                 .map_err(|e| eprintln!("Failed to connect: {}", e))
                 .unwrap();
 
             let response = client
-                .request(&ipc::Request::TermToWorkspace {
+                .request(&ipc_protocol::Request::TermToWorkspace {
                     terminal,
                     workspace_name: workspace_name.clone(),
                 })
@@ -332,12 +336,12 @@ fn main() -> eframe::Result<()> {
             Ok(())
         }
         Commands::TermNotify { socket, terminal } => {
-            let mut client = ipc::IpcClient::connect(&socket)
+            let mut client = ipc_protocol::IpcClient::connect(&socket)
                 .map_err(|e| eprintln!("Failed to connect: {}", e))
                 .unwrap();
 
             let response = client
-                .request(&ipc::Request::TermNotify { terminal })
+                .request(&ipc_protocol::Request::TermNotify { terminal })
                 .map_err(|e| eprintln!("Request failed: {}", e))
                 .unwrap();
 
@@ -348,6 +352,30 @@ fn main() -> eframe::Result<()> {
                     "Failed to notify: {}",
                     response.error.unwrap_or_else(|| "Unknown error".into())
                 );
+            }
+            Ok(())
+        }
+        Commands::Init { name } => {
+            let project_name = name.unwrap_or_else(|| {
+                std::env::current_dir()
+                    .ok()
+                    .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+                    .unwrap_or_else(|| "project".to_string())
+            });
+
+            let config = serde_json::json!({
+                "name": project_name
+            });
+
+            let path = PathBuf::from(".manse.json");
+            if path.exists() {
+                eprintln!(".manse.json already exists");
+                return Ok(());
+            }
+
+            match std::fs::write(&path, serde_json::to_string_pretty(&config).unwrap()) {
+                Ok(()) => println!("Created .manse.json with name: {}", project_name),
+                Err(e) => eprintln!("Failed to create .manse.json: {}", e),
             }
             Ok(())
         }

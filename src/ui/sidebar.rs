@@ -1,6 +1,7 @@
 use crate::config::SidebarConfig;
-use crate::icons;
 use crate::terminal::TerminalPanel;
+use crate::util::icons;
+use crate::util::layout;
 use crate::workspace::Workspace;
 use eframe::egui;
 use std::borrow::Cow;
@@ -25,7 +26,7 @@ pub fn render(
     workspaces: &[Workspace],
     active_workspace: usize,
     panels: &HashMap<u64, TerminalPanel>,
-    follow_mode: bool,
+    show_jump_letters: bool,
     config: &SidebarConfig,
 ) -> Option<SidebarAction> {
     let mut action: Option<SidebarAction> = None;
@@ -57,7 +58,8 @@ pub fn render(
                     let response = ui.add(
                         egui::Label::new(
                             egui::RichText::new(&ws.name)
-                                .size(config.workspace_font_size)
+                                .size(config.workspace_font_size + 2.0)
+                                .strong()
                                 .color(ws_color),
                         )
                         .sense(egui::Sense::click()),
@@ -67,7 +69,9 @@ pub fn render(
                     }
                 });
 
-                // Terminals in this workspace (indented less since icon provides spacing)
+                ui.add_space(4.0);
+
+                // Terminals in this workspace (indented under workspace header)
                 ui.horizontal(|ui| {
                     ui.add_space(16.0);
                     ui.vertical(|ui| {
@@ -81,105 +85,129 @@ pub fn render(
                                     egui::Color32::from_rgb(180, 180, 180)
                                 };
 
-                                // Use custom emoji if set, otherwise auto-detect from title
-                                let emoji = panel
-                                    .emoji
+                                // Use custom icon if set, otherwise auto-detect from title
+                                let icon = panel
+                                    .icon
                                     .as_deref()
-                                    .or_else(|| icons::detect_emoji(panel.display_title()));
+                                    .or_else(|| icons::detect_icon(panel.display_title()));
 
                                 // Title (with optional follow mode letter prefix)
                                 // Use Cow to avoid allocation when not in follow mode
-                                let title_text: Cow<str> = if follow_mode && global_term_idx < 26 {
-                                    let letter = (b'a' + global_term_idx as u8) as char;
-                                    Cow::Owned(format!("{} {}", letter, panel.display_title()))
+                                let title_text: Cow<str> = if show_jump_letters {
+                                    if let Some(letter) = layout::index_to_letter(global_term_idx) {
+                                        Cow::Owned(format!("{} {}", letter, panel.display_title()))
+                                    } else {
+                                        Cow::Borrowed(panel.display_title())
+                                    }
                                 } else {
                                     Cow::Borrowed(panel.display_title())
                                 };
 
-                                // Render emoji, title, and notification indicator horizontally
-                                let response = ui
-                                    .horizontal(|ui| {
-                                        // Show notification indicator if notified
-                                        if panel.notified {
-                                            ui.label(
-                                                egui::RichText::new("●")
-                                                    .size(config.terminal_title_font_size)
-                                                    .color(egui::Color32::from_rgb(255, 100, 100)),
+                                // Background color for notified terminals (dark reddish)
+                                let bg_color = if panel.notified {
+                                    Some(egui::Color32::from_rgb(60, 25, 25))
+                                } else {
+                                    None
+                                };
+
+                                // Wrap terminal entry in a frame if notified
+                                let frame = egui::Frame::new()
+                                    .fill(bg_color.unwrap_or(egui::Color32::TRANSPARENT))
+                                    .inner_margin(egui::Margin::symmetric(2, 1))
+                                    .corner_radius(4.0);
+
+                                let frame_response = frame.show(ui, |ui| {
+                                    // Render icon and title horizontally
+                                    let response = ui
+                                        .horizontal(|ui| {
+                                            // Show icon in fixed-width container for uniform alignment
+                                            let icon_text = icon.unwrap_or(icons::TERMINAL);
+                                            let icon_width = config.terminal_title_font_size * 1.5;
+                                            ui.allocate_ui_with_layout(
+                                                egui::vec2(icon_width, ui.spacing().interact_size.y),
+                                                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                                                |ui| {
+                                                    ui.label(
+                                                        egui::RichText::new(icon_text)
+                                                            .size(config.terminal_title_font_size),
+                                                    );
+                                                },
                                             );
-                                        }
 
-                                        // Show emoji if set, otherwise default terminal icon
-                                        let emoji_text = emoji.unwrap_or("🖥️");
-                                        ui.label(
-                                            egui::RichText::new(emoji_text)
-                                                .size(config.terminal_title_font_size),
-                                        );
+                                            ui.add(
+                                                egui::Label::new(
+                                                    egui::RichText::new(&*title_text)
+                                                        .size(config.terminal_title_font_size)
+                                                        .color(text_color),
+                                                )
+                                                .truncate()
+                                                .sense(egui::Sense::click()),
+                                            )
+                                        })
+                                        .inner;
 
-                                        ui.add(
+                                    if response.clicked() {
+                                        action = Some(SidebarAction::FocusTerminal {
+                                            workspace: ws_idx,
+                                            terminal: term_idx,
+                                        });
+                                    }
+
+                                    // CLI description (if set via manse term-desc)
+                                    if let Some(ref cli_desc) = panel.cli_description {
+                                        let desc_color = if is_focused {
+                                            egui::Color32::from_rgb(80, 120, 200)
+                                        } else {
+                                            egui::Color32::from_rgb(120, 120, 120)
+                                        };
+                                        let desc_response = ui.add(
                                             egui::Label::new(
-                                                egui::RichText::new(&*title_text)
-                                                    .size(config.terminal_title_font_size)
-                                                    .color(text_color),
+                                                egui::RichText::new(cli_desc)
+                                                    .size(config.description_font_size)
+                                                    .color(desc_color),
                                             )
                                             .truncate()
                                             .sense(egui::Sense::click()),
-                                        )
-                                    })
-                                    .inner;
+                                        );
+                                        if desc_response.clicked() {
+                                            action = Some(SidebarAction::FocusTerminal {
+                                                workspace: ws_idx,
+                                                terminal: term_idx,
+                                            });
+                                        }
+                                    }
 
-                                if response.clicked() {
+                                    // In-app description (if set via Cmd+D)
+                                    if !panel.description.is_empty() {
+                                        let desc_color = if is_focused {
+                                            egui::Color32::from_rgb(80, 120, 200)
+                                        } else {
+                                            egui::Color32::from_rgb(120, 120, 120)
+                                        };
+                                        let desc_response = ui.add(
+                                            egui::Label::new(
+                                                egui::RichText::new(&panel.description)
+                                                    .size(config.description_font_size)
+                                                    .color(desc_color),
+                                            )
+                                            .truncate()
+                                            .sense(egui::Sense::click()),
+                                        );
+                                        if desc_response.clicked() {
+                                            action = Some(SidebarAction::FocusTerminal {
+                                                workspace: ws_idx,
+                                                terminal: term_idx,
+                                            });
+                                        }
+                                    }
+                                });
+
+                                // Also make the frame background clickable
+                                if frame_response.response.clicked() {
                                     action = Some(SidebarAction::FocusTerminal {
                                         workspace: ws_idx,
                                         terminal: term_idx,
                                     });
-                                }
-
-                                // CLI description (if set via manse term-desc)
-                                if let Some(ref cli_desc) = panel.cli_description {
-                                    let desc_color = if is_focused {
-                                        egui::Color32::from_rgb(80, 120, 200)
-                                    } else {
-                                        egui::Color32::from_rgb(120, 120, 120)
-                                    };
-                                    let desc_response = ui.add(
-                                        egui::Label::new(
-                                            egui::RichText::new(cli_desc)
-                                                .size(config.description_font_size)
-                                                .color(desc_color),
-                                        )
-                                        .truncate()
-                                        .sense(egui::Sense::click()),
-                                    );
-                                    if desc_response.clicked() {
-                                        action = Some(SidebarAction::FocusTerminal {
-                                            workspace: ws_idx,
-                                            terminal: term_idx,
-                                        });
-                                    }
-                                }
-
-                                // In-app description (if set via Cmd+D)
-                                if !panel.description.is_empty() {
-                                    let desc_color = if is_focused {
-                                        egui::Color32::from_rgb(100, 160, 100)
-                                    } else {
-                                        egui::Color32::from_rgb(100, 120, 100)
-                                    };
-                                    let desc_response = ui.add(
-                                        egui::Label::new(
-                                            egui::RichText::new(&panel.description)
-                                                .size(config.description_font_size)
-                                                .color(desc_color),
-                                        )
-                                        .truncate()
-                                        .sense(egui::Sense::click()),
-                                    );
-                                    if desc_response.clicked() {
-                                        action = Some(SidebarAction::FocusTerminal {
-                                            workspace: ws_idx,
-                                            terminal: term_idx,
-                                        });
-                                    }
                                 }
 
                                 global_term_idx += 1;

@@ -22,8 +22,8 @@ pub struct TerminalPanel {
     pub description: String,
     /// Description set via CLI/IPC (manse term-desc)
     pub cli_description: Option<String>,
-    /// Optional emoji icon set via IPC
-    pub emoji: Option<String>,
+    /// Optional icon (Nerd Font codepoint) set via IPC
+    pub icon: Option<String>,
     /// Current working directory (from OSC 7 escape sequences)
     pub current_working_directory: Option<PathBuf>,
     /// Whether this terminal has a pending notification
@@ -38,7 +38,7 @@ impl TerminalPanel {
         socket_path: Option<&PathBuf>,
         working_directory: Option<PathBuf>,
     ) -> Self {
-        let term_id = crate::id::new_terminal_id();
+        let term_id = crate::util::ids::new_terminal_id();
 
         let shell = std::env::var("SHELL").unwrap_or_else(|_| {
             if cfg!(windows) {
@@ -76,7 +76,7 @@ impl TerminalPanel {
             custom_title: None,
             description: String::new(),
             cli_description: None,
-            emoji: None,
+            icon: None,
             current_working_directory: working_directory,
             notified: false,
         }
@@ -116,11 +116,15 @@ impl TerminalPanel {
             id: persisted.external_id.clone(),
             backend,
             width_ratio: persisted.width_ratio,
-            title: String::from("Terminal"),
+            title: if persisted.title.is_empty() {
+                String::from("Terminal")
+            } else {
+                persisted.title.clone()
+            },
             custom_title: persisted.custom_title.clone(),
             description: persisted.description.clone(),
             cli_description: persisted.cli_description.clone(),
-            emoji: persisted.emoji.clone(),
+            icon: persisted.icon.clone(),
             current_working_directory: persisted.cwd.clone(),
             notified: false,
         })
@@ -135,10 +139,11 @@ impl TerminalPanel {
             pty_fd: self.backend.pty_fd(),
             pty_pid: self.backend.pty_id(),
             width_ratio: self.width_ratio,
+            title: self.title.clone(),
             custom_title: self.custom_title.clone(),
             description: self.description.clone(),
             cli_description: self.cli_description.clone(),
-            emoji: self.emoji.clone(),
+            icon: self.icon.clone(),
             cwd: self.current_working_directory.clone(),
         }
     }

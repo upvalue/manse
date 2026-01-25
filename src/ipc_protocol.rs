@@ -18,8 +18,8 @@ pub enum Request {
     TermRename { terminal: String, title: String },
     /// Set terminal description by ID
     TermDesc { terminal: String, description: String },
-    /// Set terminal emoji icon by ID
-    TermEmoji { terminal: String, emoji: String },
+    /// Set terminal icon (Nerd Font codepoint) by ID
+    TermIcon { terminal: String, icon: String },
     /// Move a terminal to a workspace (creates workspace if needed)
     TermToWorkspace { terminal: String, workspace_name: String },
     /// Set notification on a terminal (cleared when focused)

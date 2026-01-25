@@ -54,31 +54,70 @@ Manse is a prototype scrolling window manager for terminal emulators, inspired b
 manse/
 ├── src/
 │   ├── main.rs       # CLI entry point (clap + eframe)
-│   ├── app.rs        # egui App, WindowManager logic, terminal panels
-│   ├── command.rs    # Command definitions for palette
+│   ├── app/          # egui App, WindowManager logic split into focused modules
+│   │   ├── mod.rs
+│   │   ├── input.rs       # Keyboard shortcuts + command dispatch
+│   │   ├── ipc.rs         # IPC request processing
+│   │   ├── perf.rs        # Performance tracking
+│   │   └── terminals.rs   # Terminal/workspace operations
 │   ├── config.rs     # Lua configuration loader
-│   ├── icons.rs      # Icon loading (e.g., neovim icon)
-│   ├── ipc.rs        # Unix socket server/client, protocol types
+│   ├── fonts.rs      # Font loading and configuration
+│   ├── ipc_protocol.rs # Unix socket server/client, protocol types
+│   ├── persist.rs    # Session persistence for restart
 │   ├── terminal.rs   # Terminal panel abstraction
 │   ├── workspace.rs  # Workspace data structure
-│   └── ui/
+│   ├── ui/           # UI rendering (egui-dependent)
+│   │   ├── mod.rs
+│   │   ├── command_palette.rs  # ⌘P command palette + Command enum
+│   │   ├── dialogs.rs          # Modal dialogs (confirm, input)
+│   │   ├── dialogs_state.rs    # Dialog state + overlay dispatch
+│   │   ├── sidebar.rs          # Workspace/terminal sidebar
+│   │   └── status_bar.rs       # Terminal position indicators
+│   │   └── terminal_strip.rs   # Main terminal area rendering
+│   └── util/         # Pure, testable functions (no I/O, no framework deps)
+│       ├── README.md           # Module documentation
 │       ├── mod.rs
-│       ├── command_palette.rs  # ⌘P command palette
-│       ├── sidebar.rs          # Workspace/terminal sidebar
-│       └── status_bar.rs       # Terminal position indicators
+│       ├── icons.rs            # Icon detection from terminal titles
+│       ├── ids.rs              # Terminal ID generation
+│       └── layout.rs           # Scroll math, position calculations
 ├── egui_term/        # Local fork of egui_term (focus fix applied)
 ├── patches/          # Patched dependencies
 │   ├── alacritty_terminal/
 │   └── vte/
 ├── plugins/          # Shell/editor integrations
 │   ├── fish/         # Fish shell integration
-│   └── neovim/       # Neovim plugin
+│   ├── neovim/       # Neovim plugin
+│   └── claude/       # Claude Code integration
 └── init.lua          # User configuration (Lua)
 ```
 
+### Code Organization
+
+**Application layer** (`app/`, `main.rs`, `fonts.rs`)
+- Entry point and CLI parsing
+- Application state management
+- Event loop and rendering coordination
+
+**Domain layer** (`terminal.rs`, `workspace.rs`)
+- Core data structures
+- Terminal and workspace abstractions
+
+**Infrastructure layer** (`ipc_protocol.rs`, `persist.rs`, `config.rs`)
+- External I/O: sockets, files, Lua scripting
+- Session persistence and restoration
+
+**UI layer** (`ui/`)
+- egui-dependent rendering code
+- Sidebar, status bar, command palette
+
+**Utility layer** (`util/`)
+- Pure functions with no dependencies on egui or I/O
+- Easily unit tested (48 tests currently)
+- Layout math, ID generation, icon detection
+
 ### Key Structures
 
-**App** (`src/app.rs`)
+**App** (`src/app/mod.rs`)
 - Manages collection of TerminalPanel instances
 - Handles scroll state (offset, target, animation)
 - Tracks focused terminal index
@@ -91,7 +130,7 @@ manse/
 - Unique ID for event routing
 - Two separate descriptions: `description` (in-app via ⌘D) and `cli_description` (via CLI/IPC)
 
-**IpcServer/IpcClient** (`src/ipc.rs`)
+**IpcServer/IpcClient** (`src/ipc_protocol.rs`)
 - JSON protocol over Unix domain socket
 - Multithreaded listener with channel-based message passing
 - Request/Response types with serde
@@ -115,6 +154,8 @@ All keybindings use ⌘ (Cmd) to avoid conflicts with terminal applications.
 | `⌘⇧]` | Swap with next terminal |
 | `⌘-` | Shrink focused terminal |
 | `⌘=` | Grow focused terminal |
+| `⌘J` | Follow mode (jump to terminal by letter) |
+| `⌘⇧J` | Move to spot (move terminal to position by letter) |
 | `⌘D` | Set terminal description (in-app) |
 | `⌘P` | Toggle command palette |
 
