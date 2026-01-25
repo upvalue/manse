@@ -1,0 +1,3 @@
+# Vendored/patched dependencies
+egui_term/
+patches/

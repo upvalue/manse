@@ -124,8 +124,13 @@ pub fn render(
                                             let icon_text = icon.unwrap_or(icons::TERMINAL);
                                             let icon_width = config.terminal_title_font_size * 1.5;
                                             ui.allocate_ui_with_layout(
-                                                egui::vec2(icon_width, ui.spacing().interact_size.y),
-                                                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                                                egui::vec2(
+                                                    icon_width,
+                                                    ui.spacing().interact_size.y,
+                                                ),
+                                                egui::Layout::centered_and_justified(
+                                                    egui::Direction::LeftToRight,
+                                                ),
                                                 |ui| {
                                                     ui.label(
                                                         egui::RichText::new(icon_text)
@@ -153,8 +158,8 @@ pub fn render(
                                         });
                                     }
 
-                                    // CLI description (if set via manse term-desc)
-                                    if let Some(ref cli_desc) = panel.cli_description {
+                                    // In-app description (if set via Cmd+D)
+                                    if !panel.description.is_empty() {
                                         let desc_color = if is_focused {
                                             egui::Color32::from_rgb(80, 120, 200)
                                         } else {
@@ -162,7 +167,7 @@ pub fn render(
                                         };
                                         let desc_response = ui.add(
                                             egui::Label::new(
-                                                egui::RichText::new(cli_desc)
+                                                egui::RichText::new(&panel.description)
                                                     .size(config.description_font_size)
                                                     .color(desc_color),
                                             )
@@ -177,8 +182,8 @@ pub fn render(
                                         }
                                     }
 
-                                    // In-app description (if set via Cmd+D)
-                                    if !panel.description.is_empty() {
+                                    // CLI description (if set via manse term-desc)
+                                    if let Some(ref cli_desc) = panel.cli_description {
                                         let desc_color = if is_focused {
                                             egui::Color32::from_rgb(80, 120, 200)
                                         } else {
@@ -186,7 +191,7 @@ pub fn render(
                                         };
                                         let desc_response = ui.add(
                                             egui::Label::new(
-                                                egui::RichText::new(&panel.description)
+                                                egui::RichText::new(cli_desc)
                                                     .size(config.description_font_size)
                                                     .color(desc_color),
                                             )
