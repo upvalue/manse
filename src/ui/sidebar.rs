@@ -1,4 +1,4 @@
-use crate::config::{IconConfig, SidebarConfig};
+use crate::config::{IconConfig, SidebarConfig, UiConfig};
 use crate::terminal::TerminalPanel;
 use crate::util::icons;
 use crate::util::layout;
@@ -29,6 +29,7 @@ pub fn render(
     show_jump_letters: bool,
     config: &SidebarConfig,
     icons: &IconConfig,
+    ui_colors: &UiConfig,
 ) -> Option<SidebarAction> {
     let mut action: Option<SidebarAction> = None;
     let mut global_term_idx: usize = 0;
@@ -49,9 +50,9 @@ pub fn render(
 
                 // Workspace name (clickable)
                 let ws_color = if is_active_workspace {
-                    egui::Color32::from_rgb(200, 200, 200)
+                    ui_colors.sidebar_text
                 } else {
-                    egui::Color32::from_rgb(120, 120, 120)
+                    ui_colors.sidebar_text_dim
                 };
 
                 ui.horizontal(|ui| {
@@ -81,9 +82,9 @@ pub fn render(
                                 let is_focused =
                                     is_active_workspace && term_idx == ws.focused_index;
                                 let text_color = if is_focused {
-                                    egui::Color32::from_rgb(100, 150, 255)
+                                    ui_colors.focused_border
                                 } else {
-                                    egui::Color32::from_rgb(180, 180, 180)
+                                    ui_colors.sidebar_text
                                 };
 
                                 // Use custom icon if set, otherwise auto-detect from title
@@ -203,9 +204,9 @@ pub fn render(
                                     // If we have a description, show title as secondary (subdued)
                                     if has_any_description {
                                         let secondary_color = if is_focused {
-                                            egui::Color32::from_rgb(80, 120, 200)
+                                            ui_colors.focused_border
                                         } else {
-                                            egui::Color32::from_rgb(120, 120, 120)
+                                            ui_colors.sidebar_text_dim
                                         };
                                         let title_response = ui
                                             .horizontal(|ui| {
@@ -236,9 +237,9 @@ pub fn render(
                                     if has_description && has_cli_description {
                                         let cli_desc = panel.cli_description.as_ref().unwrap();
                                         let desc_color = if is_focused {
-                                            egui::Color32::from_rgb(80, 120, 200)
+                                            ui_colors.focused_border
                                         } else {
-                                            egui::Color32::from_rgb(120, 120, 120)
+                                            ui_colors.sidebar_text_dim
                                         };
                                         let desc_response = ui
                                             .horizontal(|ui| {
@@ -292,7 +293,7 @@ pub fn render(
             ui.label(
                 egui::RichText::new(format!("{} @ {}", BUILD_GIT_HASH, BUILD_TIME))
                     .size(10.0)
-                    .color(egui::Color32::from_rgb(80, 80, 80)),
+                    .color(ui_colors.sidebar_text_dim),
             );
         });
     });

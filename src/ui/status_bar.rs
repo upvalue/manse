@@ -1,6 +1,6 @@
-use crate::config::StatusBarConfig;
+use crate::config::{StatusBarConfig, UiConfig};
 use crate::terminal::TerminalPanel;
-use crate::util::layout::{compute_minimap_rects, compute_minimap_viewport};
+use crate::util::layout::compute_minimap_viewport;
 use crate::workspace::Workspace;
 use eframe::egui;
 
@@ -21,6 +21,7 @@ pub fn render(
     focused_panel: Option<&TerminalPanel>,
     minimap_state: Option<&MinimapState>,
     config: &StatusBarConfig,
+    ui_colors: &UiConfig,
 ) {
     let num_panels = workspace.panel_order.len();
 
@@ -31,7 +32,7 @@ pub fn render(
         ui.label(
             egui::RichText::new(format!("{}/{}", workspace.focused_index + 1, num_panels))
                 .size(12.0)
-                .color(egui::Color32::from_rgb(120, 120, 120)),
+                .color(ui_colors.status_bar_text),
         );
 
         // Focused terminal title and description
@@ -44,7 +45,7 @@ pub fn render(
                 egui::Label::new(
                     egui::RichText::new(panel.display_title())
                         .size(12.0)
-                        .color(egui::Color32::from_rgb(180, 180, 180)),
+                        .color(ui_colors.sidebar_text),
                 )
                 .truncate(),
             );
@@ -56,7 +57,7 @@ pub fn render(
                     egui::Label::new(
                         egui::RichText::new(&panel.description)
                             .size(11.0)
-                            .color(egui::Color32::from_rgb(100, 140, 100)),
+                            .color(ui_colors.focused_border),
                     )
                     .truncate(),
                 );
@@ -69,7 +70,7 @@ pub fn render(
                     egui::Label::new(
                         egui::RichText::new(cli_desc)
                             .size(11.0)
-                            .color(egui::Color32::from_rgb(120, 120, 120)),
+                            .color(ui_colors.status_bar_text),
                     )
                     .truncate(),
                 );
@@ -140,9 +141,9 @@ pub fn render(
                         );
 
                         let color = if *is_focused {
-                            egui::Color32::from_rgb(100, 150, 255)
+                            ui_colors.focused_border
                         } else {
-                            egui::Color32::from_rgb(70, 70, 70)
+                            ui_colors.sidebar_text_dim
                         };
 
                         painter.rect_filled(term_rect, corner_radius, color);
@@ -186,9 +187,9 @@ pub fn render(
                         let is_active = i == workspace.focused_index;
 
                         let color = if is_active {
-                            egui::Color32::from_rgb(100, 150, 255)
+                            ui_colors.focused_border
                         } else {
-                            egui::Color32::from_rgb(80, 80, 80)
+                            ui_colors.sidebar_text_dim
                         };
 
                         painter.circle_filled(egui::pos2(x, y), dot_radius, color);

@@ -4,6 +4,7 @@ mod perf;
 mod terminals;
 
 use crate::config::Config;
+use egui_term::TerminalTheme;
 use crate::fonts;
 use crate::ipc_protocol::{start_ipc_server, IpcHandle};
 use crate::persist::{self, PersistedState, PersistedTerminal, PersistedWorkspace};
@@ -27,6 +28,8 @@ pub const WIDTH_RATIOS: [f32; 4] = [0.333, 0.5, 0.667, 1.0];
 pub struct App {
     /// Application configuration
     config: Config,
+    /// Terminal color theme (cached from config)
+    terminal_theme: TerminalTheme,
     /// Terminal panels (global pool)
     panels: HashMap<u64, TerminalPanel>,
     /// Workspaces
@@ -73,8 +76,11 @@ impl App {
             }
         });
 
+        let terminal_theme = config.build_theme();
+
         let mut app = Self {
             config,
+            terminal_theme,
             panels: HashMap::new(),
             workspaces: vec![Workspace::new("default")],
             active_workspace: 0,
@@ -181,9 +187,11 @@ impl App {
         }
 
         let active_workspace = state.active_workspace.min(workspaces.len().saturating_sub(1));
+        let terminal_theme = config.build_theme();
 
         Ok(Self {
             config,
+            terminal_theme,
             panels,
             workspaces,
             active_workspace,
@@ -322,10 +330,10 @@ impl eframe::App for App {
         egui::SidePanel::left("sidebar")
             .resizable(false)
             .exact_width(self.config.sidebar.width)
-            .frame(egui::Frame::NONE.fill(egui::Color32::from_rgb(30, 30, 30)))
+            .frame(egui::Frame::NONE.fill(self.config.ui_colors.sidebar_background))
             .show(ctx, |ui| {
                 if let Some(action) =
-                    sidebar::render(ui, &self.workspaces, self.active_workspace, &self.panels, self.follow_mode || self.move_to_spot_mode, &self.config.sidebar, &self.config.icons)
+                    sidebar::render(ui, &self.workspaces, self.active_workspace, &self.panels, self.follow_mode || self.move_to_spot_mode, &self.config.sidebar, &self.config.icons, &self.config.ui_colors)
                 {
                     match action {
                         sidebar::SidebarAction::SwitchWorkspace(ws_idx) => {
@@ -381,7 +389,7 @@ impl eframe::App for App {
                 };
 
                 egui::Frame::NONE
-                    .fill(egui::Color32::from_rgb(20, 20, 20))
+                    .fill(self.config.ui_colors.status_bar_background)
                     .show(ui, |ui| {
                         ui.set_min_width(total_width);
                         ui.set_height(28.0);
@@ -392,6 +400,7 @@ impl eframe::App for App {
                                 self.focused_panel(),
                                 minimap_state.as_ref(),
                                 &self.config.status_bar,
+                                &self.config.ui_colors,
                             );
                         });
                     });
@@ -403,16 +412,19 @@ impl eframe::App for App {
                     positions: self.active_workspace().cached_positions.positions.clone(),
                 };
 
-                terminal_strip::render(
+                if let Some(clicked_idx) = terminal_strip::render(
                     ui,
                     &self.config,
+                    &self.terminal_theme,
                     &terminal_state,
                     &mut self.panels,
                     dialog_open,
                     viewport_width,
                     padded_height,
                     padding,
-                );
+                ) {
+                    self.workspaces[self.active_workspace].focused_index = clicked_idx;
+                }
             });
 
         // Command palette overlay
