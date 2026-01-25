@@ -36,7 +36,7 @@ Terminal identifier generation:
 
 Map terminal titles to display icons:
 
-- `detect_icon()` - Pattern match title to icon (claude, nvim, vim, etc.)
+- `detect_icon(title, config)` - Match title against config patterns, return icon
 
 ## Testing
 
@@ -46,4 +46,4 @@ Run all util tests:
 cargo test util::
 ```
 
-Current coverage: 48 tests
+Current coverage: 47 tests

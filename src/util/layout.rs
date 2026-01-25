@@ -149,6 +149,84 @@ pub fn prev_ratio(ratios: &[f32], current: f32, epsilon: f32) -> Option<f32> {
     ratios.iter().rev().find(|&&r| r < current - epsilon).copied()
 }
 
+/// Minimap rectangle for a single terminal.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MinimapRect {
+    /// X offset in minimap coordinates (0.0 to 1.0 normalized)
+    pub x: f32,
+    /// Width in minimap coordinates (0.0 to 1.0 normalized)
+    pub width: f32,
+}
+
+/// Viewport rectangle in minimap coordinates.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MinimapViewport {
+    /// X offset in minimap coordinates (0.0 to 1.0 normalized)
+    pub x: f32,
+    /// Width in minimap coordinates (0.0 to 1.0 normalized)
+    pub width: f32,
+}
+
+/// Compute minimap rectangles from terminal positions.
+///
+/// Returns normalized coordinates (0.0 to 1.0) representing each terminal's
+/// position and width relative to the total content width.
+///
+/// # Arguments
+/// * `positions` - Terminal positions as (x_start, width) pairs
+///
+/// # Returns
+/// Vector of `MinimapRect` with normalized x and width values
+pub fn compute_minimap_rects(positions: &[(f32, f32)]) -> Vec<MinimapRect> {
+    let total = total_width(positions);
+    if total <= 0.0 {
+        return Vec::new();
+    }
+
+    positions
+        .iter()
+        .map(|(x, w)| MinimapRect {
+            x: x / total,
+            width: w / total,
+        })
+        .collect()
+}
+
+/// Compute viewport rectangle in minimap coordinates.
+///
+/// Returns the viewport's position and width normalized to (0.0 to 1.0),
+/// representing what portion of the total content is currently visible.
+///
+/// # Arguments
+/// * `positions` - Terminal positions as (x_start, width) pairs
+/// * `scroll_offset` - Current scroll position
+/// * `viewport_width` - Width of the visible viewport
+///
+/// # Returns
+/// `MinimapViewport` with normalized x and width, or None if no content
+pub fn compute_minimap_viewport(
+    positions: &[(f32, f32)],
+    scroll_offset: f32,
+    viewport_width: f32,
+) -> Option<MinimapViewport> {
+    let total = total_width(positions);
+    if total <= 0.0 {
+        return None;
+    }
+
+    // Clamp scroll offset to valid range
+    let max_scroll = (total - viewport_width).max(0.0);
+    let clamped_offset = scroll_offset.clamp(0.0, max_scroll);
+
+    // Viewport width can't exceed total content
+    let effective_viewport = viewport_width.min(total);
+
+    Some(MinimapViewport {
+        x: clamped_offset / total,
+        width: effective_viewport / total,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -399,5 +477,99 @@ mod tests {
         let ratios = [0.333, 0.5, 0.667, 1.0];
         assert_eq!(prev_ratio(&ratios, 0.333, 0.01), None);
         assert_eq!(prev_ratio(&ratios, 0.34, 0.01), None); // within epsilon of min
+    }
+
+    // Minimap tests
+
+    #[test]
+    fn minimap_rects_empty() {
+        let rects = compute_minimap_rects(&[]);
+        assert!(rects.is_empty());
+    }
+
+    #[test]
+    fn minimap_rects_single() {
+        let positions = vec![(0.0, 100.0)];
+        let rects = compute_minimap_rects(&positions);
+        assert_eq!(rects.len(), 1);
+        assert!((rects[0].x - 0.0).abs() < 0.001);
+        assert!((rects[0].width - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn minimap_rects_equal_widths() {
+        // Three equal-width terminals
+        let positions = vec![(0.0, 100.0), (100.0, 100.0), (200.0, 100.0)];
+        let rects = compute_minimap_rects(&positions);
+        assert_eq!(rects.len(), 3);
+        // Each should be 1/3 wide
+        for (i, rect) in rects.iter().enumerate() {
+            let expected_x = i as f32 / 3.0;
+            assert!((rect.x - expected_x).abs() < 0.001);
+            assert!((rect.width - 1.0 / 3.0).abs() < 0.001);
+        }
+    }
+
+    #[test]
+    fn minimap_rects_variable_widths() {
+        // Terminals: 1/4, 1/2, 1/4 of total
+        let positions = vec![(0.0, 100.0), (100.0, 200.0), (300.0, 100.0)];
+        let rects = compute_minimap_rects(&positions);
+        assert_eq!(rects.len(), 3);
+        // First: x=0, width=0.25
+        assert!((rects[0].x - 0.0).abs() < 0.001);
+        assert!((rects[0].width - 0.25).abs() < 0.001);
+        // Second: x=0.25, width=0.5
+        assert!((rects[1].x - 0.25).abs() < 0.001);
+        assert!((rects[1].width - 0.5).abs() < 0.001);
+        // Third: x=0.75, width=0.25
+        assert!((rects[2].x - 0.75).abs() < 0.001);
+        assert!((rects[2].width - 0.25).abs() < 0.001);
+    }
+
+    #[test]
+    fn minimap_viewport_empty() {
+        let viewport = compute_minimap_viewport(&[], 0.0, 100.0);
+        assert!(viewport.is_none());
+    }
+
+    #[test]
+    fn minimap_viewport_single_fits() {
+        // Single terminal that fits entirely in viewport
+        let positions = vec![(0.0, 100.0)];
+        let viewport = compute_minimap_viewport(&positions, 0.0, 200.0).unwrap();
+        // Viewport covers entire content
+        assert!((viewport.x - 0.0).abs() < 0.001);
+        assert!((viewport.width - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn minimap_viewport_scrolled() {
+        // Content: 400px total, viewport: 200px, scrolled to middle
+        let positions = vec![(0.0, 200.0), (200.0, 200.0)];
+        let viewport = compute_minimap_viewport(&positions, 100.0, 200.0).unwrap();
+        // Viewport at 25% offset (100/400), width 50% (200/400)
+        assert!((viewport.x - 0.25).abs() < 0.001);
+        assert!((viewport.width - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn minimap_viewport_at_end() {
+        // Scrolled to end
+        let positions = vec![(0.0, 200.0), (200.0, 200.0)];
+        let viewport = compute_minimap_viewport(&positions, 200.0, 200.0).unwrap();
+        // Viewport at 50% offset, width 50%
+        assert!((viewport.x - 0.5).abs() < 0.001);
+        assert!((viewport.width - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn minimap_viewport_clamps_scroll() {
+        // Scroll offset exceeds max
+        let positions = vec![(0.0, 100.0)];
+        let viewport = compute_minimap_viewport(&positions, 500.0, 50.0).unwrap();
+        // Should clamp to max scroll (100 - 50 = 50)
+        assert!((viewport.x - 0.5).abs() < 0.001);
+        assert!((viewport.width - 0.5).abs() < 0.001);
     }
 }

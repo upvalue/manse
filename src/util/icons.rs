@@ -1,89 +1,114 @@
 /// Icon detection for terminal panels.
 ///
-/// Maps terminal titles to icons based on keyword matching.
+/// Maps terminal titles to icons based on configurable pattern matching.
 
-/// Default terminal icon
-pub const TERMINAL: &str = "🖥️";
+use crate::config::IconConfig;
 
-/// Neovim icon
-pub const NEOVIM: &str = "✏️";
-
-/// Vim icon
-pub const VIM: &str = "✏️";
-
-/// Agent icon (Claude Code, etc.)
-pub const AGENT: &str = "🤖";
-
-/// Detects an icon from a terminal title.
+/// Detects an icon from a terminal title using the provided config.
 ///
-/// Returns an icon if the title matches a known pattern (case-insensitive).
-/// Priority order: claude > nvim/neovim > vim
-pub fn detect_icon(title: &str) -> Option<&'static str> {
+/// Checks patterns in order; returns the first match.
+/// Falls back to the default icon if no pattern matches.
+pub fn detect_icon<'a>(title: &str, config: &'a IconConfig) -> &'a str {
     let title_lower = title.to_lowercase();
 
-    // Claude/agent detection (highest priority)
-    if title_lower.contains("claude") {
-        return Some(AGENT);
+    for pattern in &config.patterns {
+        if title_lower.contains(&pattern.match_text) {
+            return &pattern.icon;
+        }
     }
 
-    // Neovim detection (before vim to avoid false matches)
-    if title_lower.contains("nvim") || title_lower.contains("neovim") {
-        return Some(NEOVIM);
-    }
-
-    // Vim detection
-    if title_lower.contains("vim") {
-        return Some(VIM);
-    }
-
-    None
+    &config.default
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::IconPattern;
+
+    fn test_config() -> IconConfig {
+        IconConfig {
+            default: "🖥️".into(),
+            patterns: vec![
+                IconPattern {
+                    match_text: "claude".into(),
+                    icon: "🤖".into(),
+                },
+                IconPattern {
+                    match_text: "nvim".into(),
+                    icon: "✏️".into(),
+                },
+                IconPattern {
+                    match_text: "neovim".into(),
+                    icon: "✏️".into(),
+                },
+            ],
+        }
+    }
 
     #[test]
     fn detect_claude() {
-        assert_eq!(detect_icon("Claude Code"), Some(AGENT));
-        assert_eq!(detect_icon("claude"), Some(AGENT));
-        assert_eq!(detect_icon("CLAUDE"), Some(AGENT));
-        assert_eq!(detect_icon("Working with Claude"), Some(AGENT));
+        let config = test_config();
+        assert_eq!(detect_icon("Claude Code", &config), "🤖");
+        assert_eq!(detect_icon("claude", &config), "🤖");
+        assert_eq!(detect_icon("CLAUDE", &config), "🤖");
+        assert_eq!(detect_icon("Working with Claude", &config), "🤖");
     }
 
     #[test]
     fn detect_neovim() {
-        assert_eq!(detect_icon("nvim"), Some(NEOVIM));
-        assert_eq!(detect_icon("NVIM"), Some(NEOVIM));
-        assert_eq!(detect_icon("neovim"), Some(NEOVIM));
-        assert_eq!(detect_icon("Neovim"), Some(NEOVIM));
-        assert_eq!(detect_icon("nvim src/main.rs"), Some(NEOVIM));
+        let config = test_config();
+        assert_eq!(detect_icon("nvim", &config), "✏️");
+        assert_eq!(detect_icon("NVIM", &config), "✏️");
+        assert_eq!(detect_icon("neovim", &config), "✏️");
+        assert_eq!(detect_icon("Neovim", &config), "✏️");
+        assert_eq!(detect_icon("nvim src/main.rs", &config), "✏️");
     }
 
     #[test]
-    fn detect_vim() {
-        assert_eq!(detect_icon("vim"), Some(VIM));
-        assert_eq!(detect_icon("VIM"), Some(VIM));
-        assert_eq!(detect_icon("vim file.txt"), Some(VIM));
+    fn no_match_returns_default() {
+        let config = test_config();
+        assert_eq!(detect_icon("bash", &config), "🖥️");
+        assert_eq!(detect_icon("Terminal", &config), "🖥️");
+        assert_eq!(detect_icon("zsh", &config), "🖥️");
+        assert_eq!(detect_icon("", &config), "🖥️");
     }
 
     #[test]
-    fn nvim_takes_priority_over_vim() {
-        // "nvim" contains "vim" but should match nvim
-        assert_eq!(detect_icon("nvim"), Some(NEOVIM));
+    fn pattern_order_matters() {
+        // First matching pattern wins
+        let config = IconConfig {
+            default: "🖥️".into(),
+            patterns: vec![
+                IconPattern {
+                    match_text: "special".into(),
+                    icon: "⭐".into(),
+                },
+                IconPattern {
+                    match_text: "special".into(),
+                    icon: "❌".into(),
+                },
+            ],
+        };
+        assert_eq!(detect_icon("special case", &config), "⭐");
     }
 
     #[test]
-    fn no_match_returns_none() {
-        assert_eq!(detect_icon("bash"), None);
-        assert_eq!(detect_icon("Terminal"), None);
-        assert_eq!(detect_icon("zsh"), None);
-        assert_eq!(detect_icon(""), None);
-    }
-
-    #[test]
-    fn claude_takes_priority() {
-        // If both claude and vim are in title, claude wins
-        assert_eq!(detect_icon("Claude editing with vim"), Some(AGENT));
+    fn custom_patterns() {
+        let config = IconConfig {
+            default: "📦".into(),
+            patterns: vec![
+                IconPattern {
+                    match_text: "docker".into(),
+                    icon: "🐳".into(),
+                },
+                IconPattern {
+                    match_text: "python".into(),
+                    icon: "🐍".into(),
+                },
+            ],
+        };
+        assert_eq!(detect_icon("docker compose up", &config), "🐳");
+        assert_eq!(detect_icon("python script.py", &config), "🐍");
+        assert_eq!(detect_icon("cargo build", &config), "📦");
     }
 }

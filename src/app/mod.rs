@@ -325,7 +325,7 @@ impl eframe::App for App {
             .frame(egui::Frame::NONE.fill(egui::Color32::from_rgb(30, 30, 30)))
             .show(ctx, |ui| {
                 if let Some(action) =
-                    sidebar::render(ui, &self.workspaces, self.active_workspace, &self.panels, self.follow_mode || self.move_to_spot_mode, &self.config.sidebar)
+                    sidebar::render(ui, &self.workspaces, self.active_workspace, &self.panels, self.follow_mode || self.move_to_spot_mode, &self.config.sidebar, &self.config.icons)
                 {
                     match action {
                         sidebar::SidebarAction::SwitchWorkspace(ws_idx) => {
@@ -345,26 +345,56 @@ impl eframe::App for App {
             .show(ctx, |ui| {
                 let total_width = ui.available_width();
 
+                // Calculate viewport dimensions early so we can cache positions
+                // before rendering the status bar minimap
+                let padding = 4.0;
+                let available = ui.available_size();
+                // Reserve 28px for status bar height
+                let padded_height = available.y - padding * 2.0 - 28.0;
+                let viewport_width = available.x - padding * 2.0;
+
+                // Ensure terminal positions are cached before status bar render
+                self.ensure_positions_cached(viewport_width);
+
+                // Scroll to focused terminal
+                self.scroll_to_focused(viewport_width);
+
+                // Build minimap state from cached positions
+                let minimap_state = {
+                    let ws = self.active_workspace();
+                    let positions: Vec<(f32, f32)> = ws
+                        .cached_positions
+                        .positions
+                        .iter()
+                        .map(|(_, x, w)| (*x, *w))
+                        .collect();
+
+                    if !positions.is_empty() {
+                        Some(status_bar::MinimapState {
+                            positions,
+                            scroll_offset: ws.scroll_offset,
+                            viewport_width,
+                        })
+                    } else {
+                        None
+                    }
+                };
+
                 egui::Frame::NONE
                     .fill(egui::Color32::from_rgb(20, 20, 20))
                     .show(ui, |ui| {
                         ui.set_min_width(total_width);
                         ui.set_height(28.0);
                         ui.horizontal_centered(|ui| {
-                            status_bar::render(ui, self.active_workspace(), self.focused_panel());
+                            status_bar::render(
+                                ui,
+                                self.active_workspace(),
+                                self.focused_panel(),
+                                minimap_state.as_ref(),
+                                &self.config.status_bar,
+                            );
                         });
                     });
-
-                let padding = 4.0;
-                let available = ui.available_size();
-                let padded_height = available.y - padding * 2.0;
-                let viewport_width = available.x - padding * 2.0;
-
-                // Scroll to focused terminal
-                self.scroll_to_focused(viewport_width);
-
-                // Ensure terminal positions are cached
-                self.ensure_positions_cached(viewport_width);
 
                 let dialog_open = !matches!(self.active_dialog, ActiveDialog::None);
                 let terminal_state = terminal_strip::TerminalStripState {

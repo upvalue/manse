@@ -7,6 +7,21 @@ print('hi!')
 -- Run with RUST_LOG=info to see output
 config.perf_log_interval = 5
 
+-- Icon aliases
+local TERMINAL = "🖥️"
+local ROBOT = "🤖"
+local PENCIL = "✏️"
+
+-- Icon detection patterns (checked in order, first match wins)
+config.icons = {
+  default = TERMINAL,
+  patterns = {
+    { match = "claude", icon = ROBOT },
+    { match = "nvim", icon = PENCIL },
+    { match = "neovim", icon = PENCIL },
+  }
+}
+
 --[[
 config.sidebar_width = 250
 config.workspace_font_size = 14

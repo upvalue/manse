@@ -25,21 +25,78 @@ impl Default for SidebarConfig {
     }
 }
 
+/// Status bar configuration
+#[derive(Debug, Clone)]
+pub struct StatusBarConfig {
+    pub show_minimap: bool,
+}
+
+impl Default for StatusBarConfig {
+    fn default() -> Self {
+        Self { show_minimap: true }
+    }
+}
+
+/// A pattern for icon detection
+#[derive(Debug, Clone)]
+pub struct IconPattern {
+    /// Substring to match (case-insensitive)
+    pub match_text: String,
+    /// Icon to display when matched
+    pub icon: String,
+}
+
+/// Icon configuration for terminal titles
+#[derive(Debug, Clone)]
+pub struct IconConfig {
+    /// Default icon when no pattern matches
+    pub default: String,
+    /// Patterns checked in order; first match wins
+    pub patterns: Vec<IconPattern>,
+}
+
+impl Default for IconConfig {
+    fn default() -> Self {
+        Self {
+            default: "🖥️".into(),
+            patterns: vec![
+                IconPattern {
+                    match_text: "claude".into(),
+                    icon: "🤖".into(),
+                },
+                IconPattern {
+                    match_text: "nvim".into(),
+                    icon: "✏️".into(),
+                },
+                IconPattern {
+                    match_text: "neovim".into(),
+                    icon: "✏️".into(),
+                },
+            ],
+        }
+    }
+}
+
 /// Application configuration
 #[derive(Debug, Clone)]
 pub struct Config {
     pub sidebar: SidebarConfig,
+    pub status_bar: StatusBarConfig,
     pub terminal_font_size: f32,
     /// Performance logging interval in seconds (0 = disabled)
     pub perf_log_interval: f32,
+    /// Icon detection configuration
+    pub icons: IconConfig,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             sidebar: SidebarConfig::default(),
+            status_bar: StatusBarConfig::default(),
             terminal_font_size: 14.0,
             perf_log_interval: 0.0,
+            icons: IconConfig::default(),
         }
     }
 }
@@ -93,6 +150,7 @@ fn load_config_from_file(path: &PathBuf) -> LuaResult<Config> {
 
     // Create config table with defaults
     let sidebar_defaults = SidebarConfig::default();
+    let status_bar_defaults = StatusBarConfig::default();
     let config_defaults = Config::default();
     lua.load(&format!(
         r#"
@@ -103,6 +161,7 @@ fn load_config_from_file(path: &PathBuf) -> LuaResult<Config> {
             description_font_size = {description_font_size},
             terminal_font_size = {terminal_font_size},
             perf_log_interval = {perf_log_interval},
+            show_minimap = {show_minimap},
         }}
         "#,
         sidebar_width = sidebar_defaults.width,
@@ -111,6 +170,7 @@ fn load_config_from_file(path: &PathBuf) -> LuaResult<Config> {
         description_font_size = sidebar_defaults.description_font_size,
         terminal_font_size = config_defaults.terminal_font_size,
         perf_log_interval = config_defaults.perf_log_interval,
+        show_minimap = status_bar_defaults.show_minimap,
     ))
     .exec()?;
 
@@ -123,6 +183,30 @@ fn load_config_from_file(path: &PathBuf) -> LuaResult<Config> {
     let globals = lua.globals();
     let config_table: mlua::Table = globals.get("config")?;
 
+    // Parse icons config if present, otherwise use defaults
+    let icons = if let Ok(icons_table) = config_table.get::<mlua::Table>("icons") {
+        let default: String = icons_table
+            .get("default")
+            .unwrap_or_else(|_| IconConfig::default().default);
+
+        let mut patterns = Vec::new();
+        if let Ok(patterns_table) = icons_table.get::<mlua::Table>("patterns") {
+            for pair in patterns_table.pairs::<i64, mlua::Table>() {
+                if let Ok((_, entry)) = pair {
+                    if let (Ok(match_text), Ok(icon)) =
+                        (entry.get::<String>("match"), entry.get::<String>("icon"))
+                    {
+                        patterns.push(IconPattern { match_text, icon });
+                    }
+                }
+            }
+        }
+
+        IconConfig { default, patterns }
+    } else {
+        IconConfig::default()
+    };
+
     let config = Config {
         sidebar: SidebarConfig {
             width: config_table.get("sidebar_width")?,
@@ -130,8 +214,12 @@ fn load_config_from_file(path: &PathBuf) -> LuaResult<Config> {
             terminal_title_font_size: config_table.get("terminal_title_font_size")?,
             description_font_size: config_table.get("description_font_size")?,
         },
+        status_bar: StatusBarConfig {
+            show_minimap: config_table.get("show_minimap")?,
+        },
         terminal_font_size: config_table.get("terminal_font_size")?,
         perf_log_interval: config_table.get("perf_log_interval")?,
+        icons,
     };
 
     Ok(config)

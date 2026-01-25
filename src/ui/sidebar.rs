@@ -1,4 +1,4 @@
-use crate::config::SidebarConfig;
+use crate::config::{IconConfig, SidebarConfig};
 use crate::terminal::TerminalPanel;
 use crate::util::icons;
 use crate::util::layout;
@@ -28,6 +28,7 @@ pub fn render(
     panels: &HashMap<u64, TerminalPanel>,
     show_jump_letters: bool,
     config: &SidebarConfig,
+    icons: &IconConfig,
 ) -> Option<SidebarAction> {
     let mut action: Option<SidebarAction> = None;
     let mut global_term_idx: usize = 0;
@@ -86,10 +87,9 @@ pub fn render(
                                 };
 
                                 // Use custom icon if set, otherwise auto-detect from title
-                                let icon = panel
-                                    .icon
-                                    .as_deref()
-                                    .or_else(|| icons::detect_icon(panel.display_title()));
+                                let icon: &str = panel.icon.as_deref().unwrap_or_else(|| {
+                                    icons::detect_icon(panel.display_title(), icons)
+                                });
 
                                 // Title (with optional follow mode letter prefix)
                                 // Use Cow to avoid allocation when not in follow mode
@@ -117,11 +117,53 @@ pub fn render(
                                     .corner_radius(4.0);
 
                                 let frame_response = frame.show(ui, |ui| {
-                                    // Render icon and title horizontally
+                                    // Determine if we have a user-set description
+                                    let has_description = !panel.description.is_empty();
+                                    let has_cli_description = panel.cli_description.is_some();
+                                    let has_any_description =
+                                        has_description || has_cli_description;
+
+                                    // Primary text: description if set, otherwise title
+                                    let primary_text: Cow<str> = if has_description {
+                                        // Use in-app description as primary
+                                        if show_jump_letters {
+                                            if let Some(letter) =
+                                                layout::index_to_letter(global_term_idx)
+                                            {
+                                                Cow::Owned(format!(
+                                                    "{} {}",
+                                                    letter, &panel.description
+                                                ))
+                                            } else {
+                                                Cow::Borrowed(&panel.description)
+                                            }
+                                        } else {
+                                            Cow::Borrowed(&panel.description)
+                                        }
+                                    } else if has_cli_description {
+                                        // Use CLI description as primary
+                                        let cli_desc = panel.cli_description.as_ref().unwrap();
+                                        if show_jump_letters {
+                                            if let Some(letter) =
+                                                layout::index_to_letter(global_term_idx)
+                                            {
+                                                Cow::Owned(format!("{} {}", letter, cli_desc))
+                                            } else {
+                                                Cow::Borrowed(cli_desc.as_str())
+                                            }
+                                        } else {
+                                            Cow::Borrowed(cli_desc.as_str())
+                                        }
+                                    } else {
+                                        // No description, use title as primary
+                                        title_text.clone()
+                                    };
+
+                                    // Render icon and primary text horizontally
                                     let response = ui
                                         .horizontal(|ui| {
                                             // Show icon in fixed-width container for uniform alignment
-                                            let icon_text = icon.unwrap_or(icons::TERMINAL);
+                                            let icon_text = icon;
                                             let icon_width = config.terminal_title_font_size * 1.5;
                                             ui.allocate_ui_with_layout(
                                                 egui::vec2(
@@ -141,7 +183,7 @@ pub fn render(
 
                                             ui.add(
                                                 egui::Label::new(
-                                                    egui::RichText::new(&*title_text)
+                                                    egui::RichText::new(&*primary_text)
                                                         .size(config.terminal_title_font_size)
                                                         .color(text_color),
                                                 )
@@ -158,23 +200,31 @@ pub fn render(
                                         });
                                     }
 
-                                    // In-app description (if set via Cmd+D)
-                                    if !panel.description.is_empty() {
-                                        let desc_color = if is_focused {
+                                    // If we have a description, show title as secondary (subdued)
+                                    if has_any_description {
+                                        let secondary_color = if is_focused {
                                             egui::Color32::from_rgb(80, 120, 200)
                                         } else {
                                             egui::Color32::from_rgb(120, 120, 120)
                                         };
-                                        let desc_response = ui.add(
-                                            egui::Label::new(
-                                                egui::RichText::new(&panel.description)
-                                                    .size(config.description_font_size)
-                                                    .color(desc_color),
-                                            )
-                                            .truncate()
-                                            .sense(egui::Sense::click()),
-                                        );
-                                        if desc_response.clicked() {
+                                        let title_response = ui
+                                            .horizontal(|ui| {
+                                                // Indent to align with text after icon
+                                                ui.add_space(
+                                                    config.terminal_title_font_size * 1.5 + 4.0,
+                                                );
+                                                ui.add(
+                                                    egui::Label::new(
+                                                        egui::RichText::new(panel.display_title())
+                                                            .size(config.description_font_size)
+                                                            .color(secondary_color),
+                                                    )
+                                                    .truncate()
+                                                    .sense(egui::Sense::click()),
+                                                )
+                                            })
+                                            .inner;
+                                        if title_response.clicked() {
                                             action = Some(SidebarAction::FocusTerminal {
                                                 workspace: ws_idx,
                                                 terminal: term_idx,
@@ -182,22 +232,31 @@ pub fn render(
                                         }
                                     }
 
-                                    // CLI description (if set via manse term-desc)
-                                    if let Some(ref cli_desc) = panel.cli_description {
+                                    // Show CLI description as tertiary if in-app description is also set
+                                    if has_description && has_cli_description {
+                                        let cli_desc = panel.cli_description.as_ref().unwrap();
                                         let desc_color = if is_focused {
                                             egui::Color32::from_rgb(80, 120, 200)
                                         } else {
                                             egui::Color32::from_rgb(120, 120, 120)
                                         };
-                                        let desc_response = ui.add(
-                                            egui::Label::new(
-                                                egui::RichText::new(cli_desc)
-                                                    .size(config.description_font_size)
-                                                    .color(desc_color),
-                                            )
-                                            .truncate()
-                                            .sense(egui::Sense::click()),
-                                        );
+                                        let desc_response = ui
+                                            .horizontal(|ui| {
+                                                // Indent to align with text after icon
+                                                ui.add_space(
+                                                    config.terminal_title_font_size * 1.5 + 4.0,
+                                                );
+                                                ui.add(
+                                                    egui::Label::new(
+                                                        egui::RichText::new(cli_desc)
+                                                            .size(config.description_font_size)
+                                                            .color(desc_color),
+                                                    )
+                                                    .truncate()
+                                                    .sense(egui::Sense::click()),
+                                                )
+                                            })
+                                            .inner;
                                         if desc_response.clicked() {
                                             action = Some(SidebarAction::FocusTerminal {
                                                 workspace: ws_idx,
