@@ -364,7 +364,7 @@ fn main() -> eframe::Result<()> {
             });
 
             let config = serde_json::json!({
-                "name": project_name
+                "workspaceName": project_name
             });
 
             let path = PathBuf::from(".manse.json");
