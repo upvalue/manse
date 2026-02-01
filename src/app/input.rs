@@ -31,6 +31,9 @@ impl App {
                     .unwrap_or_default();
                 self.active_dialog = ActiveDialog::SetDescription { input: current };
             }
+            Command::ToggleSidebar => {
+                self.sidebar_visible = !self.sidebar_visible;
+            }
         }
     }
 
@@ -205,6 +208,10 @@ impl App {
 
             if i.consume_key(egui::Modifiers::COMMAND, egui::Key::D) {
                 self.execute_command(Command::SetDescription, ctx);
+            }
+
+            if i.consume_key(egui::Modifiers::COMMAND, egui::Key::B) {
+                self.execute_command(Command::ToggleSidebar, ctx);
             }
         });
     }

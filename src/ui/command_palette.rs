@@ -16,6 +16,7 @@ pub enum Command {
     GrowTerminal,
     FollowMode,
     SetDescription,
+    ToggleSidebar,
 }
 
 impl Command {
@@ -33,6 +34,7 @@ impl Command {
             Command::GrowTerminal,
             Command::FollowMode,
             Command::SetDescription,
+            Command::ToggleSidebar,
         ]
     }
 
@@ -49,6 +51,7 @@ impl Command {
             Command::GrowTerminal => "Grow Terminal",
             Command::FollowMode => "Follow Mode",
             Command::SetDescription => "Set Terminal Description",
+            Command::ToggleSidebar => "Toggle Sidebar",
         }
     }
 
@@ -65,6 +68,7 @@ impl Command {
             Command::GrowTerminal => "⌘=",
             Command::FollowMode => "⌘J",
             Command::SetDescription => "⌘D",
+            Command::ToggleSidebar => "⌘B",
         }
     }
 }

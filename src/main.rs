@@ -373,7 +373,7 @@ fn main() -> eframe::Result<()> {
                 return Ok(());
             }
 
-            match std::fs::write(&path, serde_json::to_string_pretty(&config).unwrap()) {
+            match std::fs::write(&path, serde_json::to_string_pretty(&config).unwrap() + "\n") {
                 Ok(()) => println!("Created .manse.json with name: {}", project_name),
                 Err(e) => eprintln!("Failed to create .manse.json: {}", e),
             }

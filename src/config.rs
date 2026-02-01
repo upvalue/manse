@@ -223,6 +223,10 @@ pub struct Config {
     pub sidebar: SidebarConfig,
     pub status_bar: StatusBarConfig,
     pub terminal_font_size: f32,
+    /// Horizontal interior padding inside each terminal panel (pixels)
+    pub terminal_padding_x: f32,
+    /// Vertical interior padding inside each terminal panel (pixels)
+    pub terminal_padding_y: f32,
     /// Performance logging interval in seconds (0 = disabled)
     pub perf_log_interval: f32,
     /// Icon detection configuration
@@ -239,6 +243,8 @@ impl Default for Config {
             sidebar: SidebarConfig::default(),
             status_bar: StatusBarConfig::default(),
             terminal_font_size: 14.0,
+            terminal_padding_x: 8.0,
+            terminal_padding_y: 4.0,
             perf_log_interval: 0.0,
             icons: IconConfig::default(),
             colors: ColorsConfig::default(),
@@ -251,6 +257,13 @@ impl Config {
     /// Build a terminal theme from the color configuration.
     pub fn build_theme(&self) -> TerminalTheme {
         TerminalTheme::new(Box::new(self.colors.build_palette()))
+    }
+
+    /// Resolved terminal background as a Color32.
+    pub fn terminal_background(&self) -> Color32 {
+        let default_bg = ColorPalette::default().background;
+        let hex = self.colors.background.as_deref().unwrap_or(&default_bg);
+        hex_to_color32(hex).unwrap_or(Color32::from_rgb(0x18, 0x18, 0x18))
     }
 }
 
@@ -313,6 +326,8 @@ fn load_config_from_file(path: &PathBuf) -> LuaResult<Config> {
             terminal_title_font_size = {terminal_title_font_size},
             description_font_size = {description_font_size},
             terminal_font_size = {terminal_font_size},
+            terminal_padding_x = {terminal_padding_x},
+            terminal_padding_y = {terminal_padding_y},
             perf_log_interval = {perf_log_interval},
             show_minimap = {show_minimap},
         }}
@@ -322,6 +337,8 @@ fn load_config_from_file(path: &PathBuf) -> LuaResult<Config> {
         terminal_title_font_size = sidebar_defaults.terminal_title_font_size,
         description_font_size = sidebar_defaults.description_font_size,
         terminal_font_size = config_defaults.terminal_font_size,
+        terminal_padding_x = config_defaults.terminal_padding_x,
+        terminal_padding_y = config_defaults.terminal_padding_y,
         perf_log_interval = config_defaults.perf_log_interval,
         show_minimap = status_bar_defaults.show_minimap,
     ))
@@ -445,6 +462,8 @@ fn load_config_from_file(path: &PathBuf) -> LuaResult<Config> {
             show_minimap: config_table.get("show_minimap")?,
         },
         terminal_font_size: config_table.get("terminal_font_size")?,
+        terminal_padding_x: config_table.get("terminal_padding_x")?,
+        terminal_padding_y: config_table.get("terminal_padding_y")?,
         perf_log_interval: config_table.get("perf_log_interval")?,
         icons,
         colors,

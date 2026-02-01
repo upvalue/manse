@@ -58,15 +58,18 @@ pub fn render(
 
             let mut child_ui = ui.new_child(egui::UiBuilder::new().max_rect(rect));
 
+            let pad = egui::Margin::symmetric(config.terminal_padding_x as i8, config.terminal_padding_y as i8);
+            let base_frame = egui::Frame::NONE
+                .inner_margin(pad)
+                .fill(config.terminal_background());
             let frame = if is_focused {
-                egui::Frame::NONE
-                    .stroke(egui::Stroke::new(border_width, config.ui_colors.focused_border))
+                base_frame.stroke(egui::Stroke::new(border_width, config.ui_colors.focused_border))
             } else {
-                egui::Frame::NONE
+                base_frame
             };
 
-            let inner_width = term_width - border_width * 2.0;
-            let inner_height = padded_height - border_width * 2.0;
+            let inner_width = term_width - border_width * 2.0 - config.terminal_padding_x * 2.0;
+            let inner_height = padded_height - border_width * 2.0 - config.terminal_padding_y * 2.0;
 
             // Check if a primary click happened in this terminal's rect
             let was_clicked = child_ui.input(|i| {

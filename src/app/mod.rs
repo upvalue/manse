@@ -52,6 +52,8 @@ pub struct App {
     follow_mode: bool,
     /// Whether move-to-spot mode is active (move terminal to position by letter)
     move_to_spot_mode: bool,
+    /// Whether the sidebar is visible
+    sidebar_visible: bool,
     /// Performance tracking stats
     perf_stats: PerfStats,
     /// Active dialog (confirmation, input, etc.)
@@ -92,6 +94,7 @@ impl App {
             command_palette_open: false,
             follow_mode: false,
             move_to_spot_mode: false,
+            sidebar_visible: true,
             perf_stats: PerfStats::default(),
             active_dialog: ActiveDialog::None,
         };
@@ -203,6 +206,7 @@ impl App {
             command_palette_open: false,
             follow_mode: false,
             move_to_spot_mode: false,
+            sidebar_visible: true,
             perf_stats: PerfStats::default(),
             active_dialog: ActiveDialog::None,
         })
@@ -327,25 +331,27 @@ impl eframe::App for App {
         self.update_scroll();
 
         // Sidebar (left)
-        egui::SidePanel::left("sidebar")
-            .resizable(false)
-            .exact_width(self.config.sidebar.width)
-            .frame(egui::Frame::NONE.fill(self.config.ui_colors.sidebar_background))
-            .show(ctx, |ui| {
-                if let Some(action) =
-                    sidebar::render(ui, &self.workspaces, self.active_workspace, &self.panels, self.follow_mode || self.move_to_spot_mode, &self.config.sidebar, &self.config.icons, &self.config.ui_colors)
-                {
-                    match action {
-                        sidebar::SidebarAction::SwitchWorkspace(ws_idx) => {
-                            self.active_workspace = ws_idx;
-                        }
-                        sidebar::SidebarAction::FocusTerminal { workspace, terminal } => {
-                            self.active_workspace = workspace;
-                            self.workspaces[workspace].focused_index = terminal;
+        if self.sidebar_visible {
+            egui::SidePanel::left("sidebar")
+                .resizable(false)
+                .exact_width(self.config.sidebar.width)
+                .frame(egui::Frame::NONE.fill(self.config.ui_colors.sidebar_background))
+                .show(ctx, |ui| {
+                    if let Some(action) =
+                        sidebar::render(ui, &self.workspaces, self.active_workspace, &self.panels, self.follow_mode || self.move_to_spot_mode, &self.config.sidebar, &self.config.icons, &self.config.ui_colors)
+                    {
+                        match action {
+                            sidebar::SidebarAction::SwitchWorkspace(ws_idx) => {
+                                self.active_workspace = ws_idx;
+                            }
+                            sidebar::SidebarAction::FocusTerminal { workspace, terminal } => {
+                                self.active_workspace = workspace;
+                                self.workspaces[workspace].focused_index = terminal;
+                            }
                         }
                     }
-                }
-            });
+                });
+        }
 
         // Main terminal area
         egui::CentralPanel::default()
