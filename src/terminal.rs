@@ -50,6 +50,7 @@ impl TerminalPanel {
 
         // Set environment variables for the terminal
         let mut env = HashMap::new();
+        env.insert("TERM".to_string(), "xterm-256color".to_string());
         env.insert("MANSE_TERMINAL".to_string(), term_id.clone());
         if let Some(path) = socket_path {
             env.insert("MANSE_SOCKET".to_string(), path.display().to_string());
