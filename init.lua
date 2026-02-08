@@ -31,12 +31,17 @@ config.terminal_font_size = 14
 ]]
 
 
--- presentation settings
-config.sidebar_width = 300
+-- Fonts
+config.font_family = "Iosevka"  -- system font name (default: built-in JetBrains Mono)
+config.terminal_font_size = 16
 config.workspace_font_size = 16
 config.terminal_title_font_size = 16
 config.description_font_size = 16
-config.terminal_font_size = 18
+-- config.status_bar_title_font_size = 12    -- default: 12
+-- config.status_bar_description_font_size = 11  -- default: 11
+
+-- Layout
+config.sidebar_width = 300
 
 -- Iceberg color scheme (from wezterm/iTerm2)
 config.colors = {

@@ -31,7 +31,7 @@ pub fn render(
         // Left side: Terminal info and title
         ui.label(
             egui::RichText::new(format!("{}/{}", workspace.focused_index + 1, num_panels))
-                .size(12.0)
+                .size(config.title_font_size)
                 .color(ui_colors.status_bar_text),
         );
 
@@ -44,7 +44,7 @@ pub fn render(
             ui.add(
                 egui::Label::new(
                     egui::RichText::new(panel.display_title())
-                        .size(12.0)
+                        .size(config.title_font_size)
                         .color(ui_colors.sidebar_text),
                 )
                 .truncate(),
@@ -56,7 +56,7 @@ pub fn render(
                 ui.add(
                     egui::Label::new(
                         egui::RichText::new(&panel.description)
-                            .size(11.0)
+                            .size(config.description_font_size)
                             .color(ui_colors.focused_border),
                     )
                     .truncate(),
@@ -69,7 +69,7 @@ pub fn render(
                 ui.add(
                     egui::Label::new(
                         egui::RichText::new(cli_desc)
-                            .size(11.0)
+                            .size(config.description_font_size)
                             .color(ui_colors.status_bar_text),
                     )
                     .truncate(),

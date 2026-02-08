@@ -43,11 +43,17 @@ impl Default for SidebarConfig {
 #[derive(Debug, Clone)]
 pub struct StatusBarConfig {
     pub show_minimap: bool,
+    pub title_font_size: f32,
+    pub description_font_size: f32,
 }
 
 impl Default for StatusBarConfig {
     fn default() -> Self {
-        Self { show_minimap: true }
+        Self {
+            show_minimap: true,
+            title_font_size: 12.0,
+            description_font_size: 11.0,
+        }
     }
 }
 
@@ -222,6 +228,8 @@ impl Default for UiConfig {
 pub struct Config {
     pub sidebar: SidebarConfig,
     pub status_bar: StatusBarConfig,
+    /// System font family name (e.g. "Iosevka"). None = embedded JetBrains Mono.
+    pub font_family: Option<String>,
     pub terminal_font_size: f32,
     /// Horizontal interior padding inside each terminal panel (pixels)
     pub terminal_padding_x: f32,
@@ -242,6 +250,7 @@ impl Default for Config {
         Self {
             sidebar: SidebarConfig::default(),
             status_bar: StatusBarConfig::default(),
+            font_family: None,
             terminal_font_size: 14.0,
             terminal_padding_x: 8.0,
             terminal_padding_y: 4.0,
@@ -330,6 +339,8 @@ fn load_config_from_file(path: &PathBuf) -> LuaResult<Config> {
             terminal_padding_y = {terminal_padding_y},
             perf_log_interval = {perf_log_interval},
             show_minimap = {show_minimap},
+            status_bar_title_font_size = {status_bar_title_font_size},
+            status_bar_description_font_size = {status_bar_description_font_size},
         }}
         "#,
         sidebar_width = sidebar_defaults.width,
@@ -341,6 +352,8 @@ fn load_config_from_file(path: &PathBuf) -> LuaResult<Config> {
         terminal_padding_y = config_defaults.terminal_padding_y,
         perf_log_interval = config_defaults.perf_log_interval,
         show_minimap = status_bar_defaults.show_minimap,
+        status_bar_title_font_size = status_bar_defaults.title_font_size,
+        status_bar_description_font_size = status_bar_defaults.description_font_size,
     ))
     .exec()?;
 
@@ -451,6 +464,9 @@ fn load_config_from_file(path: &PathBuf) -> LuaResult<Config> {
         UiConfig::default()
     };
 
+    // font_family is nil (None) by default, string if set
+    let font_family: Option<String> = config_table.get("font_family").ok();
+
     let config = Config {
         sidebar: SidebarConfig {
             width: config_table.get("sidebar_width")?,
@@ -460,7 +476,10 @@ fn load_config_from_file(path: &PathBuf) -> LuaResult<Config> {
         },
         status_bar: StatusBarConfig {
             show_minimap: config_table.get("show_minimap")?,
+            title_font_size: config_table.get("status_bar_title_font_size")?,
+            description_font_size: config_table.get("status_bar_description_font_size")?,
         },
+        font_family,
         terminal_font_size: config_table.get("terminal_font_size")?,
         terminal_padding_x: config_table.get("terminal_padding_x")?,
         terminal_padding_y: config_table.get("terminal_padding_y")?,

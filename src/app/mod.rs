@@ -63,7 +63,7 @@ pub struct App {
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, socket_path: Option<PathBuf>, config: Config) -> Self {
         // Configure fonts with emoji support
-        fonts::setup_fonts(&cc.egui_ctx);
+        fonts::setup_fonts(&cc.egui_ctx, config.font_family.as_deref());
 
         let (event_tx, event_rx) = mpsc::channel();
 
@@ -113,7 +113,7 @@ impl App {
         socket_path: PathBuf,
         config: Config,
     ) -> Result<Self, String> {
-        fonts::setup_fonts(&cc.egui_ctx);
+        fonts::setup_fonts(&cc.egui_ctx, config.font_family.as_deref());
 
         let (event_tx, event_rx) = mpsc::channel();
 
