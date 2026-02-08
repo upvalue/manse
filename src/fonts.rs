@@ -10,36 +10,63 @@ const NOTO_SYMBOLS_BYTES: &[u8] = include_bytes!("../assets/fonts/NotoSansSymbol
 const NOTO_SYMBOLS2_BYTES: &[u8] = include_bytes!("../assets/fonts/NotoSansSymbols2-Regular.ttf");
 const NOTO_EMOJI_BYTES: &[u8] = include_bytes!("../assets/fonts/NotoEmoji-Regular.ttf");
 
-/// Try to load a system font by family name using font-kit.
-/// Returns the font data bytes on success.
-fn load_system_font(family: &str) -> Option<Vec<u8>> {
-    use font_kit::family_name::FamilyName;
-    use font_kit::properties::Properties;
-    use font_kit::source::SystemSource;
-
-    let source = SystemSource::new();
-    match source.select_best_match(&[FamilyName::Title(family.to_string())], &Properties::new()) {
-        Ok(handle) => match handle.load() {
-            Ok(font) => match font.copy_font_data() {
-                Some(data) => {
-                    log::info!("Loaded system font: {}", family);
-                    Some((*data).clone())
+/// Given font file bytes and a PostScript name, find the matching face index.
+/// For TTC (collection) files, iterates faces to match by PostScript name.
+/// For single font files, returns 0.
+fn find_font_index(data: &[u8], postscript_name: &str) -> u32 {
+    if let Some(n) = ttf_parser::fonts_in_collection(data) {
+        for i in 0..n {
+            if let Ok(face) = ttf_parser::Face::parse(data, i) {
+                for name in face.names() {
+                    if name.name_id == ttf_parser::name_id::POST_SCRIPT_NAME {
+                        if let Some(ps_name) = name.to_string() {
+                            if ps_name == postscript_name {
+                                return i;
+                            }
+                        }
+                    }
                 }
-                None => {
-                    log::warn!("System font '{}' found but could not read font data", family);
-                    None
-                }
-            },
-            Err(e) => {
-                log::warn!("Failed to load system font '{}': {}", family, e);
-                None
             }
-        },
-        Err(e) => {
-            log::warn!("System font '{}' not found: {}", family, e);
-            None
         }
+        log::warn!(
+            "PostScript name '{}' not found in TTC ({} faces), using index 0",
+            postscript_name, n
+        );
     }
+    0
+}
+
+/// Look up a system font by family name using Core Text (CTFontCreateWithName),
+/// then read the font file from disk. Returns (font_bytes, font_index).
+///
+/// This uses the same fast code path as Alacritty and other terminals —
+/// a direct name lookup, not the expensive font descriptor matching that font-kit uses.
+fn load_system_font(family: &str) -> Option<(Vec<u8>, u32)> {
+    // CTFontCreateWithName — fast direct lookup
+    let ct_font = core_text::font::new_from_name(family, 16.0).ok()?;
+
+    // Get font file path
+    let path = ct_font.url()?.to_path()?;
+    log::info!("Core Text resolved '{}' to {}", family, path.display());
+
+    // Read font file
+    let data = match std::fs::read(&path) {
+        Ok(d) => d,
+        Err(e) => {
+            log::warn!("Failed to read font file {}: {}", path.display(), e);
+            return None;
+        }
+    };
+
+    // Find correct index within TTC files
+    let postscript_name = ct_font.postscript_name();
+    let font_index = find_font_index(&data, &postscript_name);
+    log::info!(
+        "Loaded '{}' (PostScript: {}, index: {}, {} bytes)",
+        family, postscript_name, font_index, data.len()
+    );
+
+    Some((data, font_index))
 }
 
 /// Configure fonts: primary monospace font + Nerd Font + Noto Emoji fallbacks.
@@ -51,8 +78,10 @@ pub fn setup_fonts(ctx: &egui::Context, font_family: Option<&str>) {
 
     // Determine primary monospace font
     let (primary_name, primary_data) = if let Some(family) = font_family {
-        if let Some(data) = load_system_font(family) {
-            ("custom_mono".to_owned(), Arc::new(egui::FontData::from_owned(data)))
+        if let Some((data, font_index)) = load_system_font(family) {
+            let mut font_data = egui::FontData::from_owned(data);
+            font_data.index = font_index;
+            ("custom_mono".to_owned(), Arc::new(font_data))
         } else {
             log::warn!("Falling back to embedded JetBrains Mono");
             ("jetbrains_mono".to_owned(), Arc::new(egui::FontData::from_static(JETBRAINS_MONO_BYTES)))
