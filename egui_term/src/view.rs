@@ -25,6 +25,7 @@ const EGUI_TERM_WIDGET_ID_PREFIX: &str = "egui_term::instance::";
 #[derive(Debug, Clone)]
 enum InputAction {
     BackendCall(BackendCommand),
+    BackendCalls(Vec<BackendCommand>),
     WriteToClipboard(String),
     Ignore,
 }
@@ -165,12 +166,14 @@ impl<'a> TerminalView<'a> {
                         modifiers,
                     ))
                 },
-                egui::Event::MouseWheel { unit, delta, .. } => input_actions
+                egui::Event::MouseWheel { unit, delta, modifiers, .. } => input_actions
                     .push(process_mouse_wheel(
                         state,
+                        self.backend,
                         self.font.font_type().size,
                         unit,
                         delta,
+                        modifiers,
                     )),
                 egui::Event::PointerButton {
                     button,
@@ -204,6 +207,11 @@ impl<'a> TerminalView<'a> {
                 match action {
                     InputAction::BackendCall(cmd) => {
                         self.backend.process_command(cmd);
+                    },
+                    InputAction::BackendCalls(cmds) => {
+                        for cmd in cmds {
+                            self.backend.process_command(cmd);
+                        }
                     },
                     InputAction::WriteToClipboard(data) => {
                         layout.ctx.copy_text(data);
@@ -460,10 +468,45 @@ fn process_keyboard_key(
 
 fn process_mouse_wheel(
     state: &mut TerminalViewState,
+    backend: &TerminalBackend,
     font_size: f32,
     unit: MouseWheelUnit,
     delta: Vec2,
+    modifiers: Modifiers,
 ) -> InputAction {
+    let terminal_mode = backend.last_content().terminal_mode;
+
+    // When mouse mode is active, report scroll events as mouse button presses
+    // so applications like tmux can handle scrolling themselves.
+    if terminal_mode.intersects(TermMode::MOUSE_MODE) {
+        let lines = match unit {
+            MouseWheelUnit::Line => (delta.y.signum() * delta.y.abs().ceil()) as i32,
+            MouseWheelUnit::Point => {
+                state.scroll_pixels -= delta.y;
+                let l = (state.scroll_pixels / font_size).trunc() as i32;
+                state.scroll_pixels %= font_size;
+                -l
+            },
+            MouseWheelUnit::Page => return InputAction::Ignore,
+        };
+
+        if lines == 0 {
+            return InputAction::Ignore;
+        }
+
+        let button = if lines > 0 {
+            MouseButton::ScrollUp
+        } else {
+            MouseButton::ScrollDown
+        };
+
+        let point = state.current_mouse_position_on_grid;
+        let commands: Vec<BackendCommand> = (0..lines.abs())
+            .map(|_| BackendCommand::MouseReport(button.clone(), modifiers, point, true))
+            .collect();
+        return InputAction::BackendCalls(commands);
+    }
+
     match unit {
         MouseWheelUnit::Line => {
             let lines = delta.y.signum() * delta.y.abs().ceil();

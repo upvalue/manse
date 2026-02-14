@@ -82,12 +82,36 @@ impl App {
         if ws.focused_index < ws.panel_order.len().saturating_sub(1) {
             ws.focused_index += 1;
         }
+        self.log_ssh_status();
     }
 
     pub(crate) fn focus_prev(&mut self) {
         let ws = self.active_workspace_mut();
         if ws.focused_index > 0 {
             ws.focused_index -= 1;
+        }
+        self.log_ssh_status();
+    }
+
+    /// Log whether the currently focused terminal is running an SSH session.
+    pub(crate) fn log_ssh_status(&self) {
+        if let Some(panel) = self.focused_panel() {
+            match panel.detect_ssh() {
+                Some(ssh) => {
+                    log::info!(
+                        "Terminal {} is SSH'd to {} (full cmd: {})",
+                        panel.display_title(),
+                        ssh,
+                        ssh.full_command,
+                    );
+                }
+                None => {
+                    log::debug!(
+                        "Terminal {} — no SSH session detected",
+                        panel.display_title(),
+                    );
+                }
+            }
         }
     }
 
